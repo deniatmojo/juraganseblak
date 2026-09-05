@@ -4,6 +4,8 @@
 set -e
 SITE=/www/wwwroot/template-one.airadynamics.com
 cd "$SITE"
+git config --global --add safe.directory "$SITE" 2>/dev/null || true
+sudo git config --global --add safe.directory "$SITE" 2>/dev/null || true
 sudo git pull origin main
 sudo find "$SITE" -mindepth 1 -maxdepth 1 \
   ! -name '.well-known' ! -name '.user.ini' ! -name '.git' \
