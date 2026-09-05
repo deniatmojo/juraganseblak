@@ -26,3 +26,6 @@ Thumbs.db
 .env
 .env.*
 *.pem
+
+# repo graphify CLI lokal (git bersarang)
+graphify/
