@@ -29,3 +29,5 @@ Thumbs.db
 
 # repo graphify CLI lokal (git bersarang)
 graphify/
+# Helper lokal berisi kredensial — jangan commit
+tools/ssh_run.py
