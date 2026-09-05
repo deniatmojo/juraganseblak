@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output di-commit (dipakai untuk deploy git-pull di server),
+# tapi folder dev-server tidak:
+.webpack/
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+
+# Graphify output (di-generate lokal, tidak perlu di repo)
+graphify-out/
+
+# ZCode / IDE lokal
+.zcode/
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Env & secret
+.env
+.env.*
+*.pem
