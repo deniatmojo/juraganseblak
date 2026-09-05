@@ -10,6 +10,7 @@ import Pos from './pages/admin/Pos.jsx'
 import Absensi from './pages/admin/Absensi.jsx'
 import Stock from './pages/admin/Stock.jsx'
 import Keuangan from './pages/admin/Keuangan.jsx'
+import Karyawan from './pages/admin/Karyawan.jsx'
 import './index.css'
 
 createRoot(document.getElementById('root')).render(
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="absensi" element={<Absensi />} />
           <Route path="stock" element={<Stock />} />
           <Route path="keuangan" element={<Keuangan />} />
+          <Route path="karyawan" element={<Karyawan />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

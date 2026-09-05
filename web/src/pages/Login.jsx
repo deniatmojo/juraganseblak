@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { authenticate, login, ROLE_HOME } from '../auth'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -8,18 +9,15 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Kredensial demo — nanti diganti autentikasi backend ERP
-  const DEMO_EMAIL = 'admin@barapedas.id'
-  const DEMO_PASSWORD = 'admin123'
-
   const handleSubmit = (e) => {
     e.preventDefault()
     setError('')
 
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
+    const account = authenticate(email, password)
+    if (account) {
       setLoading(true)
-      sessionStorage.setItem('erp_user', email)
-      setTimeout(() => navigate('/erp'), 500)
+      login(account)
+      setTimeout(() => navigate(ROLE_HOME[account.role] ?? '/erp'), 500)
     } else {
       setError('Email atau password salah. Coba lagi.')
     }
