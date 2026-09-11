@@ -13,6 +13,7 @@ const navLinks = [
   { href: '#menu', label: 'Paket' },
   { href: '#testimoni', label: 'Testimoni' },
   { href: '#lokasi', label: 'Lokasi' },
+  { href: '/download', label: 'Aplikasi' },
 ]
 
 const buffetItems = [

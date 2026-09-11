@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Landing from './pages/Landing.jsx'
 import Order from './pages/Order.jsx'
 import Login from './pages/Login.jsx'
+import Download from './pages/Download.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import AdminDashboard from './pages/admin/Dashboard.jsx'
 import Pos from './pages/admin/Pos.jsx'
@@ -21,6 +22,7 @@ createRoot(document.getElementById('root')).render(
         <Route path="/" element={<Landing />} />
         <Route path="/order" element={<Order />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/download" element={<Download />} />
 
         {/* ERP Admin */}
         <Route path="/erp" element={<AdminLayout />}>

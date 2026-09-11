@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Juragan Seblak</string>
+    <string name="title_activity_main">Juragan Seblak</string>
+    <string name="package_name">id.barapedas.juraganseblak</string>
+    <string name="custom_url_scheme">id.barapedas.juraganseblak</string>
+</resources>

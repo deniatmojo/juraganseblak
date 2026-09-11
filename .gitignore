@@ -5,6 +5,12 @@ node_modules/
 # tapi folder dev-server tidak:
 .webpack/
 
+# Android build artifacts (source android/ tetap di-commit)
+web/android/.gradle/
+web/android/build/
+web/android/app/build/
+web/android/local.properties
+
 # Python / tooling
 __pycache__/
 *.pyc

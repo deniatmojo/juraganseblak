@@ -1,5 +1,14 @@
 # Instruksi Project — Juragan Seblak
 
+## MySQL (WAJIB — baca sebelum apa pun yang berhubungan dengan database)
+
+Mesin ini menjalankan DUA instance MySQL milik project BERBEDA. Sebelum menjalankan/mematikan
+server database, meng-inisialisasi, atau menghapus apa pun terkait MySQL: **baca dan patuhi
+`PROMPT-1-aturan-project-seblak.md`** (instance ini hanya boleh mengelola port 3306 via
+`D:/mysql-data` + `D:/mysql-conf/my.ini`; port 3307 / `D:/mysql-data-mulia` adalah milik
+project lain — JANGAN disentuh). Perintah yang berpotensi menghapus data WAJIB ditanyakan
+dulu ke user.
+
 ## Graphify (wajib — penghemat token)
 
 Project ini punya knowledge graph via MCP `graphify` (data di `graphify-out/graph.json`).
