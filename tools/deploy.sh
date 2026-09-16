@@ -43,6 +43,9 @@ else
 fi
 sudo pm2 save
 
-sudo chown -R www:www "$SITE"
+# .user.ini milik aaPanel immutable — jangan sampai chown menggagalkan deploy
+sudo chown -R www:www "$SITE" 2>/dev/null || true
+sudo chattr -i "$SITE/.user.ini" 2>/dev/null || true
+sudo chown deniatmojoo:www "$SITE/.user.ini" 2>/dev/null || true
 sudo chown -R deniatmojoo:www "$SITE/.git" "$SITE/deploy.sh" "$SITE/server/.env" 2>/dev/null || true
 echo "Deploy selesai."
