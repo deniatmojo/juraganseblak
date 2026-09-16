@@ -181,9 +181,13 @@ export default function Karyawan() {
             <label className="block text-sm font-bold mb-1.5">Akun Login</label>
             <select value={empForm.user_id} onChange={(e) => setEmpForm({ ...empForm, user_id: e.target.value })} className={inputCls}>
               <option value="">— tanpa akun —</option>
-              {users.filter((u) => u.is_active && u.role === 'kasir').map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-              ))}
+              {users
+                .filter((u) => u.is_active && u.role !== 'owner' && !employees.some((e) => e.user_id === u.id))
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email}){u.role === 'admin' ? ' — Admin' : ''}
+                  </option>
+                ))}
             </select>
           </div>
           <div className="md:col-span-5">
