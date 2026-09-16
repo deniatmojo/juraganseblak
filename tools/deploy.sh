@@ -26,7 +26,7 @@ if [ ! -f .env ]; then
   DB_PASS_VAL=$(grep '^DB_PASS=' /www/wwwroot/juragan_seblak.env | cut -d= -f2)
   JWT_VAL=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 64)
   sudo bash -c "cat > .env <<EOF
-PORT=3001
+PORT=3002
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=juragan_seblak
