@@ -1,5 +1,8 @@
-// Manajemen akun sederhana berbasis localStorage.
-// TODO backend: pindahkan ke API + hash password di server.
+// Manajemen sesi login.
+// Login utama sekarang server-side (JWT); fungsi akun localStorage di bawah
+// masih dipakai halaman Karyawan sampung modul SDM (users CRUD) di-migrasi.
+
+import { api, setToken, getToken } from './api'
 
 const ACCOUNTS_KEY = 'erp_accounts'
 
@@ -67,8 +70,24 @@ export function login(acc) {
   )
 }
 
+// Login server-side: POST /api/auth/login → simpan token + profil.
+// Role DB ('owner'|'admin'|'kasir') dipetakan ke role UI ('owner'|'karyawan').
+export async function serverLogin(email, password) {
+  const { token, user } = await api.post('/auth/login', { email, password })
+  const role = user.role === 'kasir' ? 'karyawan' : 'owner'
+  setToken(token)
+  const session = { id: user.id, name: user.name, email: user.email, role, position: user.role }
+  sessionStorage.setItem('erp_user', JSON.stringify(session))
+  return session
+}
+
 export function logout() {
+  setToken(null)
   sessionStorage.removeItem('erp_user')
+}
+
+export function hasToken() {
+  return Boolean(getToken())
 }
 
 export function getCurrentUser() {
@@ -79,10 +98,10 @@ export function getCurrentUser() {
   }
 }
 
-// Karyawan hanya boleh membuka Absensi; selain itu khusus super admin (owner).
-export const ROLE_HOME = { owner: '/erp', karyawan: '/erp/absensi' }
+// Karyawan (kasir) boleh membuka POS & Absensi; selain itu khusus owner/admin.
+export const ROLE_HOME = { owner: '/erp', karyawan: '/erp/pos' }
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
-  return path === '/erp/absensi'
+  return path === '/erp/absensi' || path === '/erp/pos'
 }

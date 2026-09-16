@@ -8,10 +8,12 @@ import Download from './pages/Download.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import AdminDashboard from './pages/admin/Dashboard.jsx'
 import Pos from './pages/admin/Pos.jsx'
+import Menu from './pages/admin/Menu.jsx'
 import Absensi from './pages/admin/Absensi.jsx'
 import Stock from './pages/admin/Stock.jsx'
 import Keuangan from './pages/admin/Keuangan.jsx'
 import Karyawan from './pages/admin/Karyawan.jsx'
+import Gaji from './pages/admin/Gaji.jsx'
 import './index.css'
 
 createRoot(document.getElementById('root')).render(
@@ -28,10 +30,12 @@ createRoot(document.getElementById('root')).render(
         <Route path="/erp" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="pos" element={<Pos />} />
+          <Route path="menu" element={<Menu />} />
           <Route path="absensi" element={<Absensi />} />
           <Route path="stock" element={<Stock />} />
           <Route path="keuangan" element={<Keuangan />} />
           <Route path="karyawan" element={<Karyawan />} />
+          <Route path="gaji" element={<Gaji />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

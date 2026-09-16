@@ -33,6 +33,9 @@ Thumbs.db
 .env.*
 *.pem
 
+# Foto menu yang di-upload via API (runtime data, bukan source)
+server/uploads/
+
 # repo graphify CLI lokal (git bersarang)
 graphify/
 # Helper lokal berisi kredensial — jangan commit

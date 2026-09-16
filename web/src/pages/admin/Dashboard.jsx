@@ -1,39 +1,34 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { Link } from 'react-router-dom'
+import { api } from '../../api'
 
-const summaryCards = [
+const formatRp = (num) => 'Rp ' + Math.round(num).toLocaleString('id-ID')
+
+const cardStyle = [
   {
-    value: 'Rp 4.850.000',
     label: 'Total Pendapatan Hari Ini',
-    badge: '+12.4%',
-    badgeCls: 'text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full',
+    badgeCls: 'text-xs font-bold text-char/50 bg-cream px-2 py-1 rounded-full',
     iconCls: 'bg-chili/10',
     iconColor: 'text-chili',
     icon: 'M12 8c-1.66 0-3 .9-3 2s1.34 2 3 2 3 .9 3 2-1.34 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z',
   },
   {
-    value: '86 Pesanan',
     label: 'Total Pesanan Hari Ini',
-    badge: '+8',
-    badgeCls: 'text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full',
+    badgeCls: 'text-xs font-bold text-char/50 bg-cream px-2 py-1 rounded-full',
     iconCls: 'bg-ember/10',
     iconColor: 'text-ember',
     icon: 'M9 2a1 1 0 00-1 1v1H6a2 2 0 00-2 2v13a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2V3a1 1 0 00-1-1H9zM8 11h8M8 15h5',
   },
   {
-    value: '5 Item',
-    label: 'Stok Kritis',
-    badge: 'Perlu Restock',
-    badgeCls: 'text-xs font-bold text-chili bg-red-50 px-2 py-1 rounded-full',
+    label: 'Item Menu Aktif',
+    badgeCls: 'text-xs font-bold text-char/50 bg-cream px-2 py-1 rounded-full',
     iconCls: 'bg-red-50',
     iconColor: 'text-chili',
     icon: 'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z',
   },
   {
-    value: '15 Karyawan',
-    label: 'Karyawan Hadir',
-    badge: 'dari 18',
+    label: 'Transaksi Bulan Ini',
     badgeCls: 'text-xs font-bold text-char/50 bg-cream px-2 py-1 rounded-full',
     iconCls: 'bg-char/5',
     iconColor: 'text-char',
@@ -41,26 +36,68 @@ const summaryCards = [
   },
 ]
 
-const topMenus = [
-  { name: 'Mie Setan Extreme', count: '142x' },
-  { name: 'Ayam Geprek S. Bawang', count: '118x' },
-  { name: 'Sate Bakar Matah', count: '97x' },
-  { name: 'Seblak Kerupuk Basah', count: '84x' },
-]
-
-const transactions = [
-  { id: '#BP-10231', customer: 'Dinda Ayu', type: 'Dine-in', total: 'Rp 285.000', status: 'Lunas', statusCls: 'text-green-700 bg-green-50' },
-  { id: '#BP-10230', customer: 'Bagas Pratama', type: 'Delivery', total: 'Rp 150.000', status: 'Lunas', statusCls: 'text-green-700 bg-green-50' },
-  { id: '#BP-10229', customer: 'Sinta Wulandari', type: 'Dine-in', total: 'Rp 380.000', status: 'Lunas', statusCls: 'text-green-700 bg-green-50' },
-  { id: '#BP-10228', customer: 'Rizky Ramadhan', type: 'Delivery', total: 'Rp 95.000', status: 'Pending', statusCls: 'text-ember bg-ember/10' },
-  { id: '#BP-10227', customer: 'Fajar Nugroho', type: 'Dine-in', total: 'Rp 190.000', status: 'Lunas', statusCls: 'text-green-700 bg-green-50' },
-]
-
 export default function AdminDashboard() {
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
+  const [stats, setStats] = useState(null)
+  const [transactions, setTransactions] = useState([])
+  const [weekly, setWeekly] = useState([])
+  const [error, setError] = useState('')
 
   useEffect(() => {
+    let mounted = true
+    Promise.all([
+      api.get('/orders'),               // riwayat (default terbaru, maks 500)
+      api.get('/products'),             // jumlah menu aktif
+    ])
+      .then(([orders, products]) => {
+        if (!mounted) return
+        const today = new Date().toISOString().slice(0, 10)
+        const paid = orders.filter((o) => o.status === 'paid')
+        const todays = paid.filter((o) => o.created_at?.slice(0, 10) === today)
+        const monthPrefix = today.slice(0, 7)
+
+        setStats({
+          incomeToday: todays.reduce((s, o) => s + o.total, 0),
+          ordersToday: todays.length,
+          activeMenu: products.length,
+          monthCount: paid.filter((o) => o.created_at?.startsWith(monthPrefix)).length,
+        })
+
+        setTransactions(
+          paid.slice(0, 5).map((o) => ({
+            id: o.order_no,
+            customer: o.customer_name || 'Umum',
+            type: o.channel === 'online' ? 'Online' : 'Dine-in',
+            total: formatRp(o.total),
+            status: o.status === 'paid' ? 'Lunas' : o.status === 'pending' ? 'Pending' : 'Batal',
+            statusCls: o.status === 'paid' ? 'text-green-700 bg-green-50' : 'text-ember bg-ember/10',
+          }))
+        )
+
+        // Omzet 7 hari terakhir
+        const days = []
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date()
+          d.setDate(d.getDate() - i)
+          const key = d.toISOString().slice(0, 10)
+          days.push({
+            label: d.toLocaleDateString('id-ID', { weekday: 'short' }),
+            total: paid.filter((o) => o.created_at?.slice(0, 10) === key).reduce((s, o) => s + o.total, 0),
+          })
+        }
+        setWeekly(days)
+      })
+      .catch((e) => mounted && setError(`Gagal memuat data: ${e.message}`))
+    return () => { mounted = false }
+  }, [])
+
+  const summaryValues = stats
+    ? [formatRp(stats.incomeToday), `${stats.ordersToday} Pesanan`, `${stats.activeMenu} Item`, `${stats.monthCount} Transaksi`]
+    : ['…', '…', '…', '…']
+
+  useEffect(() => {
+    if (!weekly.length || !canvasRef.current) return
     const ctx = canvasRef.current.getContext('2d')
     const gradient = ctx.createLinearGradient(0, 0, 0, 280)
     gradient.addColorStop(0, 'rgba(200,30,30,0.25)')
@@ -69,11 +106,11 @@ export default function AdminDashboard() {
     chartRef.current = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
+        labels: weekly.map((d) => d.label),
         datasets: [
           {
             label: 'Pendapatan',
-            data: [3200000, 2800000, 3600000, 4100000, 4700000, 5600000, 4850000],
+            data: weekly.map((d) => d.total),
             borderColor: '#C81E1E',
             backgroundColor: gradient,
             borderWidth: 3,
@@ -118,13 +155,15 @@ export default function AdminDashboard() {
     })
 
     return () => chartRef.current?.destroy()
-  }, [])
+  }, [weekly])
 
   return (
     <main className="flex-1 p-5 md:p-8 space-y-7">
+      {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3">{error}</p>}
+
       {/* SUMMARY CARDS */}
       <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        {summaryCards.map((card) => (
+        {cardStyle.map((card, i) => (
           <div key={card.label} className="bg-white rounded-2xl p-6 border border-black/5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <span className={`w-11 h-11 rounded-xl ${card.iconCls} grid place-items-center`}>
@@ -132,9 +171,9 @@ export default function AdminDashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" d={card.icon} />
                 </svg>
               </span>
-              <span className={card.badgeCls}>{card.badge}</span>
+              <span className={card.badgeCls}>Live</span>
             </div>
-            <p className="text-2xl font-display tracking-wide">{card.value}</p>
+            <p className="text-2xl font-display tracking-wide">{summaryValues[i]}</p>
             <p className="text-xs text-char/50 mt-1">{card.label}</p>
           </div>
         ))}
@@ -157,15 +196,12 @@ export default function AdminDashboard() {
 
         <div className="bg-char text-cream rounded-2xl p-6 flex flex-col justify-between">
           <div>
-            <p className="text-ember font-bold text-xs mb-2">Menu Terlaris</p>
-            <h2 className="font-display text-xl uppercase leading-tight mb-5">Minggu Ini</h2>
+            <p className="text-ember font-bold text-xs mb-2">Info</p>
+            <h2 className="font-display text-xl uppercase leading-tight mb-5">Data Langsung</h2>
             <ul className="space-y-4 text-sm">
-              {topMenus.map((m) => (
-                <li key={m.name} className="flex items-center justify-between">
-                  <span>{m.name}</span>
-                  <span className="font-bold text-ember">{m.count}</span>
-                </li>
-              ))}
+              <li className="flex items-center justify-between">
+                <span>Grafik &amp; kartu di samping diambil dari transaksi nyata di database.</span>
+              </li>
             </ul>
           </div>
           <Link to="/erp/pos" className="mt-6 block text-center bg-chili hover:bg-chili-dark transition-colors text-white font-bold text-sm py-3 rounded-full">
@@ -192,6 +228,9 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
+              {transactions.length === 0 && (
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-char/40">Belum ada transaksi.</td></tr>
+              )}
               {transactions.map((t) => (
                 <tr key={t.id} className="hover:bg-cream/60 transition-colors">
                   <td className="px-6 py-4 font-semibold">{t.id}</td>

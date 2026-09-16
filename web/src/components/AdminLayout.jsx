@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { getCurrentUser, logout, isAllowed } from '../auth'
+import { api } from '../api'
 
 const headerMeta = {
-  '/erp': { title: 'Dashboard', subtitle: 'Ringkasan operasional Bara.Pedas hari ini' },
+  '/erp': { title: 'Dashboard', subtitle: 'Ringkasan operasional Juragan Seblak hari ini' },
   '/erp/pos': { title: 'Kasir / POS', subtitle: 'Meja 07 · Dine-in' },
+  '/erp/menu': { title: 'Manajemen Menu', subtitle: 'Kelola menu, harga, HPP & kategori' },
   '/erp/absensi': { title: 'Absensi', subtitle: 'Kehadiran karyawan hari ini' },
   '/erp/stock': { title: 'Stok Bahan Baku', subtitle: 'Pantau ketersediaan bahan dapur' },
   '/erp/keuangan': { title: 'Laporan Keuangan', subtitle: 'Pemasukan & pengeluaran outlet' },
-  '/erp/karyawan': { title: 'Karyawan', subtitle: 'Kelola akun login karyawan' },
+  '/erp/karyawan': { title: 'Karyawan', subtitle: 'Kelola akun login & data karyawan' },
+  '/erp/gaji': { title: 'Gaji & Payroll', subtitle: 'Rekap gaji, kasbon, dan pembayaran' },
 }
 
 const navItems = [
@@ -22,8 +25,13 @@ const navItems = [
   {
     to: '/erp/pos',
     label: 'Kasir / POS',
-    ownerOnly: true,
     icon: 'M3 10h18M3 6h18M4 6v12a1 1 0 001 1h14a1 1 0 001-1V6M9 14h6',
+  },
+  {
+    to: '/erp/menu',
+    label: 'Menu',
+    ownerOnly: true,
+    icon: 'M4 6h16M4 6v12a2 2 0 002 2h12a2 2 0 002-2V6M4 6l2-4h12l2 4M9 11h6',
   },
   {
     to: '/erp/absensi',
@@ -48,6 +56,12 @@ const navItems = [
     ownerOnly: true,
     icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-4-4a4 4 0 11-8 0 4 4 0 018 0zM4 21v-1a5 5 0 015-5h2a5 5 0 015 5v1',
   },
+  {
+    to: '/erp/gaji',
+    label: 'Gaji',
+    ownerOnly: true,
+    icon: 'M12 8c-1.66 0-3 .9-3 2s1.34 2 3 2 3 .9 3 2-1.34 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z',
+  },
 ]
 
 export default function AdminLayout() {
@@ -56,6 +70,9 @@ export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [now, setNow] = useState(new Date())
   const [user, setUser] = useState(getCurrentUser)
+  const [lowStock, setLowStock] = useState([])
+  const [notifOpen, setNotifOpen] = useState(false)
+  const notifRef = useRef(null)
 
   const visibleNav = navItems.filter((item) => !item.ownerOnly || user?.role === 'owner')
   const meta = headerMeta[location.pathname] ?? { title: 'Dashboard', subtitle: '' }
@@ -77,6 +94,28 @@ export default function AdminLayout() {
     return () => clearInterval(timer)
   }, [])
 
+  // Notifikasi stok kritis — refresh tiap 60 detik
+  useEffect(() => {
+    let mounted = true
+    const load = () => {
+      api.get('/stock')
+        .then((items) => mounted && setLowStock(items.filter((i) => i.is_low)))
+        .catch(() => {})
+    }
+    load()
+    const timer = setInterval(load, 60000)
+    return () => { mounted = false; clearInterval(timer) }
+  }, [])
+
+  // Tutup dropdown notif saat klik di luar
+  useEffect(() => {
+    const onClick = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
   const clock = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const date = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -91,7 +130,7 @@ export default function AdminLayout() {
       <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-char text-cream flex flex-col transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="h-20 flex items-center px-6 border-b border-char-line shrink-0">
           <Link to="/erp" className="font-display text-2xl tracking-wide">
-            BARA<span className="text-chili">.</span>PEDAS
+            JURAGAN<span className="text-chili">.</span>SEBLAK
           </Link>
         </div>
 
@@ -160,12 +199,47 @@ export default function AdminLayout() {
               <span className="font-bold text-sm tabular-nums">{clock}</span>
               <span className="text-xs text-char/50 mt-0.5">{date}</span>
             </div>
-            <button aria-label="Notifikasi" className="relative p-2 rounded-full hover:bg-cream transition-colors">
-              <svg className="w-6 h-6 text-char/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-chili rounded-full ring-2 ring-white"></span>
-            </button>
+            <div className="relative" ref={notifRef}>
+              <button
+                aria-label="Notifikasi stok"
+                onClick={() => setNotifOpen((v) => !v)}
+                className="relative p-2 rounded-full hover:bg-cream transition-colors"
+              >
+                <svg className="w-6 h-6 text-char/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                {lowStock.length > 0 && (
+                  <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 bg-chili text-white text-[10px] font-bold rounded-full ring-2 ring-white grid place-items-center">
+                    {lowStock.length}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="absolute right-0 top-12 w-72 bg-white rounded-2xl border border-black/10 shadow-xl overflow-hidden z-30">
+                  <div className="px-5 py-3.5 border-b border-black/5 flex items-center justify-between">
+                    <p className="font-bold text-sm">Stok Kritis</p>
+                    <span className="text-xs font-bold text-chili bg-red-50 px-2 py-0.5 rounded-full">{lowStock.length} bahan</span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {lowStock.length === 0 && <p className="px-5 py-6 text-sm text-char/40 text-center">Semua stok aman 👍</p>}
+                    {lowStock.map((s) => (
+                      <div key={s.id} className="px-5 py-3 border-b border-black/5 last:border-0 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{s.name}</p>
+                          <p className="text-xs text-char/50">min {s.min_qty} {s.unit}</p>
+                        </div>
+                        <span className="text-xs font-bold text-chili bg-red-50 px-2 py-1 rounded-full shrink-0">{s.qty} {s.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {user?.role === 'owner' && (
+                    <Link to="/erp/stock" onClick={() => setNotifOpen(false)} className="block text-center text-xs font-bold text-white bg-char hover:bg-char-soft py-3">
+                      Kelola Stok
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="w-10 h-10 rounded-full bg-chili/15 grid place-items-center font-bold text-chili">
               {(user?.name ?? '?').charAt(0).toUpperCase()}
             </div>

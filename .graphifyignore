@@ -1,2 +1,7 @@
 # repo clone graphify - hanya untuk referensi, jangan di-index
 graphify/
+
+# rahasia/kredensial — jangan pernah masuk graph
+.env
+.env.*
+*.pem

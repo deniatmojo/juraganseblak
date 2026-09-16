@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { authenticate, login, ROLE_HOME } from '../auth'
+import { serverLogin, ROLE_HOME } from '../auth'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -9,17 +9,16 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-
-    const account = authenticate(email, password)
-    if (account) {
-      setLoading(true)
-      login(account)
-      setTimeout(() => navigate(ROLE_HOME[account.role] ?? '/erp'), 500)
-    } else {
-      setError('Email atau password salah. Coba lagi.')
+    setLoading(true)
+    try {
+      const session = await serverLogin(email, password)
+      setTimeout(() => navigate(ROLE_HOME[session.role] ?? '/erp'), 400)
+    } catch (err) {
+      setError(err.message || 'Email atau password salah. Coba lagi.')
+      setLoading(false)
     }
   }
 
@@ -30,7 +29,7 @@ export default function Login() {
       <header className="border-b border-char-line">
         <div className="max-w-3xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
           <Link to="/" className="font-display text-2xl text-cream tracking-wide">
-            BARA<span className="text-chili">.</span>PEDAS
+            JURAGAN<span className="text-chili">.</span>SEBLAK
           </Link>
           <Link to="/" className="text-cream/70 hover:text-ember text-sm font-semibold flex items-center gap-1.5 transition-colors">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -48,7 +47,7 @@ export default function Login() {
               </svg>
             </div>
             <h1 className="font-display text-3xl md:text-4xl uppercase leading-tight">Login Sistem ERP</h1>
-            <p className="mt-3 text-cream/60 text-sm">Masuk untuk mengelola pesanan, stok, dan laporan bisnis Bara.Pedas.</p>
+            <p className="mt-3 text-cream/60 text-sm">Masuk untuk mengelola pesanan, stok, dan laporan bisnis Juragan Seblak.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="bg-char-soft border border-char-line rounded-2xl p-6 md:p-8 space-y-5">
@@ -58,7 +57,7 @@ export default function Login() {
                 type="email"
                 id="email"
                 required
-                placeholder="admin@barapedas.id"
+                placeholder="owner@juraganseblak.id"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={inputCls}
@@ -91,7 +90,8 @@ export default function Login() {
             </button>
 
             <p className="text-center text-xs text-cream/40">
-              Akun demo: <span className="text-cream/70 font-semibold">admin@barapedas.id</span> / <span className="text-cream/70 font-semibold">admin123</span>
+              Demo owner: <span className="text-cream/70 font-semibold">owner@juraganseblak.id</span> / <span className="text-cream/70 font-semibold">seblak123</span>
+              &nbsp;&middot;&nbsp; Demo kasir: <span className="text-cream/70 font-semibold">kasir@juraganseblak.id</span> / <span className="text-cream/70 font-semibold">kasir123</span>
             </p>
           </form>
         </div>
