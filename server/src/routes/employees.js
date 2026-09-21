@@ -5,15 +5,38 @@ const router = Router();
 
 const SELECT_EMP = `
   SELECT e.id, e.name, e.role, e.phone, e.daily_rate, e.is_active, e.user_id,
+         DATE_FORMAT(e.shift_start, '%H:%i') AS shift_start, e.work_hours,
          u.email AS account_email, u.role AS account_role,
          COALESCE((SELECT SUM(k.amount) FROM kasbon k WHERE k.employee_id = e.id AND k.is_settled = 0), 0) AS kasbon_open
   FROM employees e LEFT JOIN users u ON u.id = e.user_id`;
+
+// Validasi field jadwal absensi (setting owner di halaman Absensi).
+function scheduleParams(body, params) {
+  if (body.shift_start !== undefined) {
+    const v = body.shift_start;
+    if (v !== null && v !== '' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v))) {
+      const err = new Error('Format jam masuk harus HH:MM (contoh 08:30)');
+      err.status = 400;
+      throw err;
+    }
+    params.shift_start = v ? `${v}:00` : null;
+  }
+  if (body.work_hours !== undefined) {
+    const n = Number(body.work_hours);
+    if (!Number.isFinite(n) || n <= 0 || n > 24) {
+      const err = new Error('Durasi kerja harus 0–24 jam');
+      err.status = 400;
+      throw err;
+    }
+    params.work_hours = n;
+  }
+}
 
 // GET /api/employees
 router.get('/', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(`${SELECT_EMP} WHERE e.is_active = 1 ORDER BY e.name`);
-    res.json(rows.map((r) => ({ ...r, daily_rate: Number(r.daily_rate), kasbon_open: Number(r.kasbon_open) })));
+    res.json(rows.map((r) => ({ ...r, daily_rate: Number(r.daily_rate), work_hours: Number(r.work_hours), kasbon_open: Number(r.kasbon_open) })));
   } catch (e) { next(e); }
 });
 
@@ -53,11 +76,13 @@ router.patch('/:id', async (req, res, next) => {
   try {
     const allowed = ['name', 'role', 'phone', 'daily_rate', 'user_id', 'is_active'];
     const sets = allowed.filter((f) => req.body[f] !== undefined);
-    if (!sets.length) return res.status(400).json({ error: 'Tidak ada field yang diubah' });
     const id = Number(req.params.id);
     if (req.body.user_id !== undefined) await assertUserFree(req.body.user_id, id);
     const params = { id };
     for (const f of sets) params[f] = req.body[f];
+    scheduleParams(req.body, params);
+    sets.push(...['shift_start', 'work_hours'].filter((f) => params[f] !== undefined));
+    if (!sets.length) return res.status(400).json({ error: 'Tidak ada field yang diubah' });
     const [result] = await pool.query(
       `UPDATE employees SET ${sets.map((f) => `${f} = :${f}`).join(', ')} WHERE id = :id`, params
     );

@@ -159,11 +159,17 @@ button:focus-visible {
   body * {
     visibility: hidden;
   }
+  /* Area cetak: struk pelanggan (#receiptPrintArea) atau resep dapur
+     (#kitchenPrintArea) — hanya satu yang dirender saat window.print()
+     dipanggil, lihat Pos.jsx. */
   #receiptPrintArea,
-  #receiptPrintArea * {
+  #receiptPrintArea *,
+  #kitchenPrintArea,
+  #kitchenPrintArea * {
     visibility: visible;
   }
-  #receiptPrintArea {
+  #receiptPrintArea,
+  #kitchenPrintArea {
     position: absolute;
     top: 0;
     left: 0;

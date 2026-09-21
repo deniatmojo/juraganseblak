@@ -19,6 +19,7 @@ export default function Pos() {
   const [cart, setCart] = useState([])
   const [selectedPay, setSelectedPay] = useState('cash')
   const [receipt, setReceipt] = useState(null)
+  const [printDoc, setPrintDoc] = useState(null)     // 'struk' | 'dapur' saat print
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -94,6 +95,11 @@ export default function Pos() {
     })
   }
 
+  // Catatan per item (mis. "pedas level 3") — ikut ke resep dapur
+  const editNote = (id, note) => {
+    setCart((prev) => prev.map((c) => (c.id === id ? { ...c, note } : c)))
+  }
+
   const subtotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0)
   const tax = subtotal * rates.tax_rate
   const service = subtotal * rates.service_rate
@@ -105,7 +111,7 @@ export default function Pos() {
     setSubmitting(true)
     try {
       const order = await api.post('/orders', {
-        items: cart.map((c) => ({ product_id: c.id, qty: c.qty })),
+        items: cart.map((c) => ({ product_id: c.id, qty: c.qty, note: c.note?.trim() || null })),
         pay_method: selectedPay,
         channel: 'pos',
       })
@@ -132,6 +138,7 @@ export default function Pos() {
 
   const closeReceipt = () => {
     setReceipt(null)
+    setPrintDoc(null)
     setCart([])
   }
 
@@ -143,6 +150,16 @@ export default function Pos() {
     }
   }, [receipt])
 
+  // Cetak dokumen terpilih (struk pelanggan / resep dapur). Efek ini berjalan
+  // setelah React selesai merender area cetak, barulah window.print() dipanggil.
+  useEffect(() => {
+    if (!printDoc) return
+    const done = () => setPrintDoc(null)
+    window.addEventListener('afterprint', done)
+    window.print()
+    return () => window.removeEventListener('afterprint', done)
+  }, [printDoc])
+
   const receiptText = () => {
     if (!receipt) return ''
     return [
@@ -153,7 +170,10 @@ export default function Pos() {
       `No: ${receipt.no} (${receipt.date})`,
       `Kasir: ${user?.name || '-'}`,
       '',
-      ...receipt.items.map((i) => `${i.qty}x ${i.name} — ${formatRp(i.price * i.qty)}`),
+      ...receipt.items.flatMap((i) => [
+        `${i.qty}x ${i.name} — ${formatRp(i.price * i.qty)}`,
+        ...(i.note ? [`    catatan: ${i.note}`] : []),
+      ]),
       '',
       `Subtotal: ${formatRp(receipt.subtotal)}`,
       `Pajak: ${formatRp(receipt.tax)}`,
@@ -251,17 +271,35 @@ export default function Pos() {
             <p className="text-center text-sm text-char/40 py-10">Keranjang masih kosong.<br />Pilih menu di sebelah kiri.</p>
           ) : (
             cart.map((item) => (
-              <div key={item.id} className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{item.name}</p>
-                  <p className="text-xs text-char/50">{formatRp(item.price)}</p>
+              <div key={item.id} className="space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{item.name}</p>
+                    <p className="text-xs text-char/50">{formatRp(item.price)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => changeQty(item.id, -1)} className="w-7 h-7 rounded-full border border-black/15 text-char font-bold text-sm grid place-items-center">−</button>
+                    <span className="w-5 text-center text-sm font-bold">{item.qty}</span>
+                    <button onClick={() => changeQty(item.id, 1)} className="w-7 h-7 rounded-full border border-black/15 text-char font-bold text-sm grid place-items-center">+</button>
+                  </div>
+                  <p className="w-24 text-right font-bold text-sm shrink-0">{formatRp(item.price * item.qty)}</p>
+                  <button
+                    onClick={() => editNote(item.id, item.note === undefined ? '' : item.note === '' ? undefined : item.note)}
+                    title="Tambah catatan untuk dapur"
+                    className={`w-7 h-7 rounded-full grid place-items-center shrink-0 border ${item.note ? 'border-chili text-chili bg-red-50' : 'border-black/15 text-char/50 hover:text-char'}`}
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.718 3.718z" /></svg>
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => changeQty(item.id, -1)} className="w-7 h-7 rounded-full border border-black/15 text-char font-bold text-sm grid place-items-center">−</button>
-                  <span className="w-5 text-center text-sm font-bold">{item.qty}</span>
-                  <button onClick={() => changeQty(item.id, 1)} className="w-7 h-7 rounded-full border border-black/15 text-char font-bold text-sm grid place-items-center">+</button>
-                </div>
-                <p className="w-24 text-right font-bold text-sm shrink-0">{formatRp(item.price * item.qty)}</p>
+                {item.note !== undefined && (
+                  <input
+                    type="text"
+                    placeholder="Catatan untuk dapur (mis. pedas level 3)"
+                    value={item.note}
+                    onChange={(e) => editNote(item.id, e.target.value)}
+                    className="w-full bg-cream/60 border border-black/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-chili/30"
+                  />
+                )}
               </div>
             ))
           )}
@@ -366,7 +404,7 @@ export default function Pos() {
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm"></div>
 
           <div className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden">
-            <div id="receiptPrintArea" className="p-7">
+            <div id="receiptPrintArea" className={`p-7 ${printDoc === 'dapur' ? 'hidden' : ''}`}>
               <div className="text-center mb-5">
                 <p className="font-display text-xl tracking-wide">{receipt.storeName || 'Juragan Seblak'}</p>
                 {receipt.storeAddress && <p className="text-xs text-char/50 mt-1">{receipt.storeAddress}</p>}
@@ -381,9 +419,12 @@ export default function Pos() {
 
               <div className="border-t border-dashed border-black/20 pt-3 mb-3 space-y-2 text-sm">
                 {receipt.items.map((item) => (
-                  <div key={item.id} className="flex justify-between">
-                    <span>{item.qty}x {item.name}</span>
-                    <span>{formatRp(item.price * item.qty)}</span>
+                  <div key={item.id}>
+                    <div className="flex justify-between">
+                      <span>{item.qty}x {item.name}</span>
+                      <span>{formatRp(item.price * item.qty)}</span>
+                    </div>
+                    {item.note && <p className="text-xs text-char/50 pl-4">↳ {item.note}</p>}
                   </div>
                 ))}
               </div>
@@ -405,19 +446,47 @@ export default function Pos() {
             </div>
 
             <div className="flex gap-3 px-7 pb-7 pt-1">
-              <button onClick={() => window.print()} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2">
+              <button onClick={() => setPrintDoc('struk')} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Struk untuk pelanggan">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 9V4h12v5M6 18h12v3H6v-3zm-3-9h18a1 1 0 011 1v6a1 1 0 01-1 1h-3v-3H6v3H3a1 1 0 01-1-1v-6a1 1 0 011-1z" /></svg>
-                Print
+                Cetak Struk
               </button>
-              <button onClick={sendWhatsApp} className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5 0 1.47 1.07 2.89 1.22 3.09.15.2 2.11 3.22 5.1 4.51.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.76-.72 2.01-1.42.25-.7.25-1.29.17-1.42-.07-.13-.27-.2-.57-.35M12.05 21.5h-.01a9.5 9.5 0 01-4.83-1.32l-.35-.2-3.59.94.96-3.5-.22-.36A9.46 9.46 0 012.55 12 9.5 9.5 0 1112.05 21.5m8.09-17.6A11.47 11.47 0 0012.05.5C5.7.5.55 5.65.55 12c0 2.03.53 4.01 1.54 5.75L.5 23.5l5.89-1.54A11.44 11.44 0 0012.05 23.5c6.35 0 11.5-5.15 11.5-11.5 0-3.07-1.2-5.96-3.41-8.1" /></svg>
-                WhatsApp
+              <button onClick={() => setPrintDoc('dapur')} className="flex-1 bg-ember hover:bg-ember/90 text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Resep pesanan untuk koki (tanpa harga)">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                Cetak Resep Dapur
               </button>
             </div>
             <div className="px-7 pb-7">
+              <button onClick={sendWhatsApp} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-full text-sm mb-3 flex items-center justify-center gap-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5 0 1.47 1.07 2.89 1.22 3.09.15.2 2.11 3.22 5.1 4.51.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.76-.72 2.01-1.42.25-.7.25-1.29.17-1.42-.07-.13-.27-.2-.57-.35M12.05 21.5h-.01a9.5 9.5 0 01-4.83-1.32l-.35-.2-3.59.94.96-3.5-.22-.36A9.46 9.46 0 012.55 12 9.5 9.5 0 1112.05 21.5m8.09-17.6A11.47 11.47 0 0012.05.5C5.7.5.55 5.65.55 12c0 2.03.53 4.01 1.54 5.75L.5 23.5l5.89-1.54A11.44 11.44 0 0012.05 23.5c6.35 0 11.5-5.15 11.5-11.5 0-3.07-1.2-5.96-3.41-8.1" /></svg>
+                Kirim WhatsApp
+              </button>
               <button onClick={closeReceipt} className="w-full border border-black/15 text-char font-bold py-3 rounded-full text-sm">Pesanan Baru</button>
             </div>
           </div>
+
+          {/* RESEP DAPUR — hanya dirender saat dicetak; disembunyikan dari layar */}
+          {printDoc === 'dapur' && (
+            <div id="kitchenPrintArea" className="fixed top-0 left-[-9999px] w-80 bg-white text-char p-5">
+              <h2 className="text-center text-2xl font-black tracking-widest uppercase leading-tight">Resep Dapur</h2>
+              <p className="text-center text-xs mt-1">{receipt.storeName || 'Juragan Seblak'}</p>
+              <div className="mt-3 border-t-2 border-dashed border-black pt-2 text-xs space-y-1">
+                <div className="flex justify-between"><span>No.</span><span className="font-bold">{receipt.no}</span></div>
+                <div className="flex justify-between"><span>Waktu</span><span>{receipt.date}</span></div>
+                <div className="flex justify-between"><span>Kasir</span><span>{user?.name || '-'}</span></div>
+              </div>
+              <div className="mt-3 border-t-2 border-dashed border-black pt-3 space-y-3">
+                {receipt.items.map((item) => (
+                  <div key={item.id} className="leading-tight">
+                    <p className="text-xl font-black">{item.qty}× {item.name}</p>
+                    {item.note && <p className="text-sm font-bold ml-7">→ {item.note}</p>}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 border-t-2 border-dashed border-black pt-2 text-center text-xs">
+                Untuk koki — selesaikan sesuai urutan datang
+              </p>
+            </div>
+          )}
         </div>
       )}
     </main>

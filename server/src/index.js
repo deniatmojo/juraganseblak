@@ -16,6 +16,7 @@ import employeesRouter from './routes/employees.js';
 import attendanceRouter from './routes/attendance.js';
 import payrollRouter from './routes/payroll.js';
 import uploadRouter from './routes/upload.js';
+import { autoClockOut } from './routes/attendance.js';
 import { requireAuth, requireRole } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +24,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Folder upload multer ada di server/uploads (lihat routes/upload.js) — path
+// static harus menunjuk ke folder yang sama agar file hasil upload bisa diakses.
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Semua endpoint butuh login, kecuali health & login itu sendiri.
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -73,3 +76,8 @@ app.use((err, _req, res, _next) => {
 
 const port = Number(process.env.PORT || 3001);
 app.listen(port, () => console.log(`API Juragan Seblak jalan di http://localhost:${port}`));
+
+// Auto clock-out karyawan: tutup absensi yang sudah melewati durasi kerja
+// (clock_in + work_hours dari setting jadwal). Cek tiap menit + sekali saat boot.
+autoClockOut().catch(() => {});
+setInterval(() => autoClockOut().catch(() => {}), 60_000);

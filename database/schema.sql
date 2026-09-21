@@ -168,6 +168,8 @@ CREATE TABLE IF NOT EXISTS employees (
   name       VARCHAR(100) NOT NULL,
   role       VARCHAR(50)  DEFAULT NULL,
   phone      VARCHAR(20)  DEFAULT NULL,
+  shift_start TIME NULL DEFAULT NULL,                  -- jam masuk terjadwal (penentu terlambat)
+  work_hours DECIMAL(4, 2) NOT NULL DEFAULT 8.00,      -- durasi kerja jam → auto clock-out
   daily_rate DECIMAL(14, 2) NOT NULL DEFAULT 0,  -- tarif gaji harian
   is_active  TINYINT(1) NOT NULL DEFAULT 1,
   user_id    INT UNSIGNED DEFAULT NULL,           -- link akun login (opsional)

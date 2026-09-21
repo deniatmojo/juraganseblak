@@ -18,9 +18,11 @@ async function getSettings() {
   };
 }
 
-// Nomor pesanan: JS-YYYYMMDD-NNNN (urut per hari)
+// Nomor pesanan: JS-YYYYMMDD-NNNN (urut per hari, tanggal lokal — bukan UTC
+// agar tidak mundur sehari antara 00:00–07:00 WIB)
 async function nextOrderNo(conn) {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const d = new Date();
+  const today = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const prefix = `JS-${today}-`;
   const [[row]] = await conn.query(
     'SELECT order_no FROM orders WHERE order_no LIKE :p ORDER BY order_no DESC LIMIT 1',
