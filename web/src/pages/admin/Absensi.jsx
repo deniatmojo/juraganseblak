@@ -25,6 +25,38 @@ const statusLabel = { hadir: 'Hadir', terlambat: 'Terlambat', izin: 'Izin', saki
 
 const inputCls = 'w-full bg-white border border-black/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili'
 
+// Picker jam 24 jam ("HH : MM") — konsisten 24 jam di semua lokal browser.
+const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'))
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
+
+function TimePicker24({ value, onChange }) {
+  const [hh, mm] = (value || '').split(':')
+  return (
+    <div className="inline-flex items-stretch rounded-xl border border-black/15 bg-cream/50 overflow-hidden focus-within:ring-2 focus-within:ring-chili/30 focus-within:border-chili">
+      <select
+        aria-label="Jam"
+        value={hh || ''}
+        onChange={(e) => onChange(e.target.value === '' ? '' : `${e.target.value}:${mm || '00'}`)}
+        className="appearance-none bg-transparent font-display text-lg px-2 py-1.5 text-center cursor-pointer focus:outline-none"
+      >
+        <option value="">--</option>
+        {HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+      <span className="self-center font-display text-char/40">:</span>
+      <select
+        aria-label="Menit"
+        value={mm || ''}
+        onChange={(e) => onChange(!hh ? '' : `${hh}:${e.target.value}`)}
+        className="appearance-none bg-transparent font-display text-lg px-2 py-1.5 text-center cursor-pointer focus:outline-none"
+      >
+        <option value="">--</option>
+        {MINUTES.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <span className="bg-char text-cream text-[10px] font-bold grid place-items-center px-1.5 select-none">WIB</span>
+    </div>
+  )
+}
+
 export default function Absensi() {
   const { user } = useOutletContext()
   const isOwner = user?.role === 'owner'
@@ -144,6 +176,67 @@ export default function Absensi() {
         </button>
       </div>
 
+      {/* REKAP ABSENSI (Admin / Karyawan Kasir / Karyawan) — di bawah tombol absen */}
+      {!isOwner && (
+        <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 border-b border-black/5">
+            <div>
+              <h2 className="font-bold">Rekap Absensi {user?.role === 'karyawan' ? 'Saya' : 'Karyawan'}</h2>
+              <p className="text-xs text-char/50 mt-0.5">
+                {user?.role === 'karyawan' ? 'Riwayat absensi pribadi.' : 'Kehadiran karyawan — hanya lihat, perubahan oleh Super Admin.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="border border-black/15 rounded-full px-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-chili/30"
+              />
+              <span className="text-xs text-char/50">{rows.length} orang</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="text-left text-char/40 text-xs uppercase border-b border-black/5">
+                  <th className="px-6 py-3 font-bold">Karyawan</th>
+                  <th className="px-6 py-3 font-bold">Posisi</th>
+                  <th className="px-6 py-3 font-bold">Jam Masuk</th>
+                  <th className="px-6 py-3 font-bold">Jam Keluar</th>
+                  <th className="px-6 py-3 font-bold">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black/5">
+                {rows.length === 0 && (
+                  <tr><td colSpan={5} className="px-6 py-8 text-center text-char/40">Belum ada data absensi.</td></tr>
+                )}
+                {rows.map((r) => (
+                  <tr key={r.employee_id} className="hover:bg-cream/60 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-full bg-cream grid place-items-center font-display text-sm shrink-0">{r.name.slice(0, 1)}</span>
+                        <span className="font-semibold">{r.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-char/60">{r.posisi || '—'}</td>
+                    <td className={`px-6 py-4 ${r.clock_in ? '' : 'text-char/40'}`}>{fmtTime(r.clock_in)}</td>
+                    <td className={`px-6 py-4 ${r.clock_out ? '' : 'text-char/40'}`}>{fmtTime(r.clock_out)}</td>
+                    <td className="px-6 py-4">
+                      {r.status ? (
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${statusCls[r.status]}`}>{statusLabel[r.status]}</span>
+                      ) : (
+                        <span className="text-xs text-char/30">belum absen</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {isOwner && (
         <>
           {/* SUMMARY STRIP */}
@@ -163,11 +256,16 @@ export default function Absensi() {
 
           {/* SETTING JADWAL KERJA — owner only */}
           <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
-            <div className="px-6 py-5 border-b border-black/5">
-              <h2 className="font-bold">Pengaturan Jadwal Kerja</h2>
-              <p className="text-xs text-char/50 mt-1">
-                Atur jam masuk & durasi kerja tiap karyawan. Absen keluar tercatat otomatis saat durasi kerja terlewati.
-              </p>
+            <div className="bg-gradient-to-r from-char to-char-soft px-6 py-5 flex items-start gap-4">
+              <span className="w-11 h-11 rounded-xl bg-chili/20 grid place-items-center shrink-0 ring-1 ring-chili/40">
+                <svg className="w-5 h-5 text-ember" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </span>
+              <div>
+                <h2 className="font-bold text-cream">Pengaturan Jadwal Kerja</h2>
+                <p className="text-xs text-cream/50 mt-1">
+                  Atur jam masuk (format 24 jam) &amp; durasi kerja tiap karyawan. Absen keluar tercatat otomatis saat durasi kerja terlewati.
+                </p>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[720px]">
@@ -195,13 +293,22 @@ export default function Absensi() {
                       </td>
                       <td className="px-4 py-3 text-char/60">{s.role || '—'}</td>
                       <td className="px-4 py-3">
-                        <input type="time" value={s.shift_start || ''} onChange={(e) => editSchedule(s.id, 'shift_start', e.target.value)} className={inputCls} />
+                        <TimePicker24 value={s.shift_start || ''} onChange={(v) => editSchedule(s.id, 'shift_start', v)} />
                       </td>
                       <td className="px-4 py-3">
-                        <input type="number" min="1" max="24" step="0.5" value={s.work_hours} onChange={(e) => editSchedule(s.id, 'work_hours', e.target.value)} className={inputCls} />
+                        <div className="inline-flex items-center gap-2">
+                          <input type="number" min="1" max="24" step="0.5" value={s.work_hours} onChange={(e) => editSchedule(s.id, 'work_hours', e.target.value)} className={`${inputCls} w-20 text-center font-display text-lg`} />
+                          <span className="text-xs text-char/40 font-bold">jam</span>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-char/70">
-                        {s.shift_start ? `${addHours(s.shift_start, s.work_hours)} (auto)` : '—'}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {s.shift_start ? (
+                          <span className="inline-flex items-center gap-2 bg-ember/10 text-ember font-bold text-sm px-3 py-1.5 rounded-full">
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
+                            {addHours(s.shift_start, s.work_hours)}
+                            <span className="text-[10px] font-bold opacity-60">AUTO</span>
+                          </span>
+                        ) : <span className="text-char/40">—</span>}
                       </td>
                       <td className="px-6 py-3 text-right">
                         <button

@@ -75,6 +75,7 @@ export default function AdminLayout() {
   const notifRef = useRef(null)
 
   const visibleNav = navItems.filter((item) => !item.ownerOnly || user?.role === 'owner')
+  const roleLabel = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
   const meta = headerMeta[location.pathname] ?? { title: 'Dashboard', subtitle: '' }
 
   useEffect(() => {
@@ -127,7 +128,7 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen flex bg-cream text-char antialiased">
       {/* SIDEBAR */}
-      <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-char text-cream flex flex-col transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+      <aside className={`fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 z-40 w-64 bg-char text-cream flex flex-col transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="h-20 flex items-center px-6 border-b border-char-line shrink-0">
           <Link to="/erp" className="font-display text-2xl tracking-wide">
             JURAGAN<span className="text-chili">.</span>SEBLAK
@@ -140,7 +141,7 @@ export default function AdminLayout() {
           </div>
           <div className="min-w-0">
             <p className="font-bold text-sm truncate">{user?.name ?? 'Pengguna'}</p>
-            <p className="text-xs text-cream/50">{user?.role === 'owner' ? 'Super Admin' : 'Karyawan'}</p>
+            <p className="text-xs text-cream/50">{roleLabel[user?.role] ?? 'Pengguna'}</p>
           </div>
         </div>
 
@@ -240,7 +241,7 @@ export default function AdminLayout() {
                 </div>
               )}
             </div>
-            <div className="w-10 h-10 rounded-full bg-chili/15 grid place-items-center font-bold text-chili">
+            <div className="w-10 h-10 rounded-full bg-chili/15 grid place-items-center font-bold text-chili shrink-0">
               {(user?.name ?? '?').charAt(0).toUpperCase()}
             </div>
           </div>

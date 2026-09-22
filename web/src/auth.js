@@ -10,7 +10,7 @@ const DEFAULT_ACCOUNTS = [
   {
     id: 1,
     name: 'Rangga Saputra',
-    email: 'admin@barapedas.id',
+    email: 'admin@juraganseblak.id',
     password: 'admin123',
     role: 'owner', // super admin: akses semua menu
     position: 'Owner',
@@ -98,10 +98,15 @@ export function getCurrentUser() {
   }
 }
 
-// Karyawan (kasir) boleh membuka POS & Absensi; selain itu khusus owner/admin.
-export const ROLE_HOME = { owner: '/erp', karyawan: '/erp/pos' }
+// Hak akses per role:
+// - owner  (Super Admin)  : semua menu
+// - admin  (Admin)        : POS & Absensi (tanpa atur jadwal, tanpa Gaji/Karyawan)
+// - kasir  (Karyawan Kasir): POS & Absensi
+// - karyawan (Karyawan)   : Absensi saja (absen harian + rekap sendiri)
+export const ROLE_HOME = { owner: '/erp', kasir: '/erp/pos', karyawan: '/erp/absensi' }
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
+  if (role === 'karyawan') return path === '/erp/absensi'
   return path === '/erp/absensi' || path === '/erp/pos'
 }

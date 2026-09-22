@@ -43,12 +43,14 @@ app.use('/api/products', adminOnlyForWrites);
 app.use('/api/categories', adminOnlyForWrites);
 app.use('/api/settings', adminOnlyForWrites);
 app.use('/api/stock', adminOnlyForWrites);
-app.use('/api/transactions', adminOnly);
+app.use('/api/transactions', requireRole('owner'));
 app.use('/api/orders', (req, res, next) => (req.method === 'POST' ? next() : adminOnly(req, res, next)));
-app.use('/api/users', adminOnly);
-app.use('/api/employees', adminOnlyForWrites);
+// Manajemen akun, data karyawan (termasuk atur jadwal), dan payroll:
+// khusus Super Admin (owner). Admin tidak boleh menyentuh menu Gaji/Karyawan.
+app.use('/api/users', requireRole('owner'));
+app.use('/api/employees', requireRole('owner'));
 app.use('/api/attendance', (req, res, next) => (req.method === 'PATCH' ? adminOnly(req, res, next) : next()));
-app.use('/api/payroll', adminOnly);
+app.use('/api/payroll', requireRole('owner'));
 app.use('/api/upload', adminOnly);
 app.use('/api/shifts', requireAuth, (req, res, next) => {
   // Daftar riwayat shift = owner/admin (diproses di route); aktifitas shift

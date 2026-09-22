@@ -107,7 +107,7 @@ export default function Landing() {
       <header className="fixed top-0 inset-x-0 z-50 bg-char/95 backdrop-blur border-b border-char-line">
         <nav className="max-w-7xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
           <a href="#home" className="font-display text-2xl md:text-3xl text-cream tracking-wide">
-            BARA<span className="text-chili">.</span>PEDAS
+            JURAGAN <span className="text-chili">SEBLAK</span>
           </a>
 
           <ul className="hidden md:flex items-center gap-9 text-sm font-semibold text-cream/80">
@@ -195,8 +195,8 @@ export default function Landing() {
             </h1>
 
             <p className="mt-6 text-cream/80 text-base md:text-lg max-w-lg">
-              Bara.Pedas menyajikan konsep All You Can Eat dengan racikan sambal rumahan,
-              aneka lauk bakar, dan mie pedas legendaris. Satu harga, sepuasnya, sampai keringetan.
+              Juragan Seblak menyajikan racikan seblak rumahan,
+              aneka topping, dan kuah pedas legendaris.
             </p>
 
             <div className="mt-9 flex flex-wrap gap-4">
@@ -358,7 +358,7 @@ export default function Landing() {
               </div>
               <div className="flex gap-4">
                 <svg className="w-6 h-6 text-chili shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                <p>halo@barapedas.id</p>
+                <p>halo@juraganseblak.id</p>
               </div>
             </div>
 
@@ -375,7 +375,7 @@ export default function Landing() {
               allowFullScreen=""
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              title="Lokasi Bara.Pedas di Google Maps"
+              title="Lokasi Juragan Seblak di Google Maps"
             ></iframe>
           </div>
         </div>
@@ -384,8 +384,8 @@ export default function Landing() {
       {/* FOOTER */}
       <footer className="bg-char text-cream/70 border-t border-char-line py-10">
         <div className="max-w-7xl mx-auto px-5 md:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
-          <p className="font-display text-xl text-cream tracking-wide">BARA<span className="text-chili">.</span>PEDAS</p>
-          <p className="text-sm text-center">&copy; 2026 Bara.Pedas. Seluruh hak cipta dilindungi.</p>
+          <p className="font-display text-xl text-cream tracking-wide">JURAGAN <span className="text-chili">SEBLAK</span></p>
+          <p className="text-sm text-center">&copy; 2026 Juragan Seblak. Seluruh hak cipta dilindungi.</p>
           <div className="flex items-center gap-5">
             <a href="#" aria-label="Instagram" className="hover:text-ember transition-colors">
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2c3.2 0 3.58.01 4.85.07 1.17.05 1.97.24 2.43.4a4.9 4.9 0 011.77 1.15 4.9 4.9 0 011.15 1.77c.16.46.35 1.26.4 2.43.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.24 1.97-.4 2.43a4.9 4.9 0 01-1.15 1.77 4.9 4.9 0 01-1.77 1.15c-.46.16-1.26.35-2.43.4-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.97-.24-2.43-.4a4.9 4.9 0 01-1.77-1.15 4.9 4.9 0 01-1.15-1.77c-.16-.46-.35-1.26-.4-2.43C2.21 15.58 2.2 15.2 2.2 12s.01-3.58.07-4.85c.05-1.17.24-1.97.4-2.43a4.9 4.9 0 011.15-1.77A4.9 4.9 0 015.6 2.8c.46-.16 1.26-.35 2.43-.4C9.3 2.34 9.68 2.33 12 2.33m0 4.65a5.02 5.02 0 100 10.04 5.02 5.02 0 000-10.04zm0 8.28a3.26 3.26 0 110-6.52 3.26 3.26 0 010 6.52zm5.4-8.48a1.17 1.17 0 110-2.34 1.17 1.17 0 010 2.34z" /></svg>

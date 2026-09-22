@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
 
-const roleLabels = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan' }
+const roleLabels = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
 const inputCls = 'w-full bg-white text-char border border-black/15 rounded-xl px-4 py-3 text-sm'
 
 export default function Karyawan() {
@@ -102,7 +102,8 @@ export default function Karyawan() {
           <div>
             <label className="block text-sm font-bold mb-1.5">Role</label>
             <select value={accForm.role} onChange={(e) => setAccForm({ ...accForm, role: e.target.value })} className={inputCls}>
-              <option value="kasir">Karyawan (Kasir)</option>
+              <option value="kasir">Karyawan Kasir</option>
+              <option value="karyawan">Karyawan (Absensi saja)</option>
               <option value="admin">Admin</option>
               <option value="owner">Super Admin</option>
             </select>
