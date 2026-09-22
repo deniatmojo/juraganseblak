@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+
 import '../auth_service.dart';
 import '../theme.dart';
 import 'dashboard_page.dart';
@@ -77,8 +77,17 @@ class _ErpShellState extends State<ErpShell> {
   @override
   Widget build(BuildContext context) {
     final entry = entries[index];
-    final clock = DateFormat.Hms('id_ID').format(now);
-    final date = DateFormat('EEEE, d MMMM y', 'id_ID').format(now);
+    // Format manual (bukan DateFormat intl) — locale id_ID harus di-init
+    // async dan bisa kalah balapan dengan render pertama di release.
+    final clock =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    final date =
+        '${days[now.weekday - 1]}, ${now.day} ${months[now.month - 1]} ${now.year}';
 
     return Scaffold(
       backgroundColor: AppColors.cream,

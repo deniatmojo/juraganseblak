@@ -341,7 +341,9 @@ class _PosPageState extends State<PosPage> {
     String info;
     if (active) {
       final totals = Map<String, dynamic>.from(shift!['totals'] as Map? ?? {});
-      final opened = '${shift!['opened_at'] ?? ''}'.substring(11, 16);
+      final openedAt = '${shift!['opened_at'] ?? ''}';
+      final opened =
+          openedAt.length >= 16 ? openedAt.substring(11, 16) : '—';
       info =
           'Shift aktif sejak $opened · Kas awal ${formatRp(shift!['opening_cash'] ?? 0)}'
           ' · ${totals['order_count'] ?? 0} pesanan · ${formatRp(totals['sales_total'] ?? 0)}';
@@ -778,7 +780,7 @@ class _ReceiptDialog extends StatelessWidget {
             dashed(),
             _row('No. Struk', '${receipt['order_no']}'),
             _row('Kasir', cashier),
-            _row('Tanggal', '${receipt['created_at'] ?? ''}'.substring(0, 16)),
+            _row('Tanggal', _fmtDate(receipt['created_at'])),
             dashed(),
             for (final l in lines) ...[
               _row('${l.qty}x ${l.item.name}', formatRp(l.item.price * l.qty)),
@@ -818,6 +820,11 @@ class _ReceiptDialog extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _fmtDate(dynamic v) {
+    final s = '$v';
+    return s.length >= 16 ? s.substring(0, 16) : s;
   }
 
   Widget _row(String l, String r, {bool bold = false}) => Padding(

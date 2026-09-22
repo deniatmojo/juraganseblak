@@ -45,7 +45,7 @@ export default function Download() {
         </p>
 
         <a
-          href="/apk/juragan-seblak.apk?v=3"
+          href="/apk/juragan-seblak.apk?v=4"
           download
           className="inline-flex items-center gap-3 bg-chili hover:bg-chili-dark text-white text-lg font-bold px-10 py-4 rounded-full transition-colors shadow-lg shadow-chili/30"
         >
