@@ -5,8 +5,7 @@ import '../theme.dart';
 /// Layar login — pembuka aplikasi. Tidak ada landing page: dari sini langsung
 /// masuk ke shell ERP (owner) atau POS (karyawan).
 class LoginScreen extends StatefulWidget {
-  final void Function(AppUser) onSuccess;
-  const LoginScreen({super.key, required this.onSuccess});
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,9 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final user = await authService.login(_email.text, _password.text);
-      await Future.delayed(const Duration(milliseconds: 300));
-      widget.onSuccess(user);
+      await authService.login(_email.text, _password.text);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {

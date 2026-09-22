@@ -43,7 +43,7 @@ class _ErpShellState extends State<ErpShell> {
     super.initState();
     entries = [
       NavEntry('Dashboard', 'Ringkasan operasional hari ini', Icons.home_outlined,
-          true, DashboardPage(user: widget.user)),
+          true, DashboardPage()),
       NavEntry('Kasir / POS', 'Meja 07 · Dine-in', Icons.point_of_sale_outlined,
           false, PosPage(user: widget.user)),
       NavEntry('Menu', 'Kelola menu, harga, HPP & kategori',
