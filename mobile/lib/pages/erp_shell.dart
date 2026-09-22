@@ -33,6 +33,7 @@ class ErpShell extends StatefulWidget {
 }
 
 class _ErpShellState extends State<ErpShell> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   late List<NavEntry> entries;
   int index = 0;
   DateTime now = DateTime.now();
@@ -90,8 +91,9 @@ class _ErpShellState extends State<ErpShell> {
         '${days[now.weekday - 1]}, ${now.day} ${months[now.month - 1]} ${now.year}';
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.cream,
-      endDrawer: _buildDrawer(entry),
+      drawer: _buildDrawer(entry),
       body: Column(
         children: [
           // HEADER
@@ -103,6 +105,10 @@ class _ErpShellState extends State<ErpShell> {
               height: 80,
               child: Row(
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.menu, color: AppColors.char),
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                  ),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,11 +140,6 @@ class _ErpShellState extends State<ErpShell> {
                     child: Text(widget.user.name[0].toUpperCase(),
                         style: AppText.body(
                             size: 16, weight: FontWeight.w700, color: AppColors.chili)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.menu, color: AppColors.char),
-                    onPressed: () =>
-                        Scaffold.of(context).openEndDrawer(),
                   ),
                 ],
               ),
