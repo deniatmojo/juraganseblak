@@ -98,14 +98,18 @@ export function getCurrentUser() {
 }
 
 // Hak akses per role:
-// - owner  (Super Admin)  : semua menu
-// - admin  (Admin)        : POS & Absensi (tanpa atur jadwal, tanpa Gaji/Karyawan)
-// - kasir  (Karyawan Kasir): POS & Absensi
-// - karyawan (Karyawan)   : Absensi saja (absen harian + rekap sendiri)
-export const ROLE_HOME = { owner: '/erp', admin: '/erp/pos', kasir: '/erp/pos', karyawan: '/erp/absensi' }
+// - owner    (Super Admin)   : semua
+// - admin    (Admin)         : semua KECUALI Gaji, Karyawan, Keuangan (dan atur jadwal absensi)
+// - kasir    (Karyawan Kasir): POS & Absensi saja
+// - karyawan (Karyawan)      : Absensi saja
+export const ROLE_HOME = { owner: '/erp', admin: '/erp', kasir: '/erp/pos', karyawan: '/erp/absensi' }
+
+const ADMIN_BLOCKED = ['/erp/gaji', '/erp/karyawan', '/erp/keuangan']
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
+  if (role === 'admin') return !ADMIN_BLOCKED.includes(path)
+  if (role === 'kasir') return path === '/erp/absensi' || path === '/erp/pos'
   if (role === 'karyawan') return path === '/erp/absensi'
-  return path === '/erp/absensi' || path === '/erp/pos'
+  return false
 }

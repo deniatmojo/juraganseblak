@@ -80,6 +80,59 @@ async function lateStatus(empId, now) {
   return minutes > lh * 60 + lm ? 'terlambat' : 'hadir';
 }
 
+// GET /api/attendance/recap?from=&to= — rekap absensi dalam rentang tanggal.
+// Owner/admin: rekap semua karyawan (hitungan per status). Role lain: hanya
+// miliknya sendiri, plus daftar record per tanggal.
+router.get('/recap', async (req, res, next) => {
+  try {
+    const to = req.query.to || today();
+    const from = req.query.from || to;
+    const isBoss = ['owner', 'admin'].includes(req.user.role);
+
+    const [[self]] = await pool.query(
+      'SELECT id FROM employees WHERE user_id = :u AND is_active = 1 LIMIT 1', { u: req.user.id }
+    );
+    if (!isBoss && !self) return res.json({ employees: [], records: [] });
+
+    const scope = isBoss ? '' : 'AND e.id = :selfId';
+    const [empRows] = await pool.query(
+      `SELECT e.id, e.name, e.role AS posisi,
+              COALESCE(SUM(a.status = 'hadir'), 0) AS hadir,
+              COALESCE(SUM(a.status = 'terlambat'), 0) AS terlambat,
+              COALESCE(SUM(a.status = 'izin'), 0) AS izin,
+              COALESCE(SUM(a.status = 'sakit'), 0) AS sakit,
+              COALESCE(SUM(a.status = 'alpa'), 0) AS alpa,
+              COUNT(a.id) AS tercatat
+       FROM employees e
+       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date BETWEEN :from AND :to
+       WHERE e.is_active = 1 ${scope}
+       GROUP BY e.id, e.name, e.role
+       ORDER BY e.name`,
+      { from, to, selfId: self?.id }
+    );
+    const employees = empRows.map((r) => ({
+      ...r, hadir: Number(r.hadir), terlambat: Number(r.terlambat),
+      izin: Number(r.izin), sakit: Number(r.sakit), alpa: Number(r.alpa), tercatat: Number(r.tercatat),
+    }));
+
+    // Detail per tanggal hanya untuk rekap pribadi (bukan boss)
+    let records = [];
+    if (!isBoss && self) {
+      const [recRows] = await pool.query(
+        `SELECT DATE_FORMAT(work_date, '%d/%m/%Y') AS tanggal, work_date,
+                DATE_FORMAT(clock_in, '%H:%i') AS clock_in,
+                DATE_FORMAT(clock_out, '%H:%i') AS clock_out,
+                status, note
+         FROM attendance WHERE employee_id = :id AND work_date BETWEEN :from AND :to
+         ORDER BY work_date DESC`,
+        { id: self.id, from, to }
+      );
+      records = recRows;
+    }
+    res.json({ from, to, employees, records });
+  } catch (e) { next(e); }
+});
+
 // POST /api/attendance/clock-in
 router.post('/clock-in', async (req, res, next) => {
   try {

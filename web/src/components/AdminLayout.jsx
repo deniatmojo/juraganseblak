@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { getCurrentUser, logout, isAllowed } from '../auth'
+import { getCurrentUser, logout, isAllowed, ROLE_HOME } from '../auth'
 import { api } from '../api'
 
 const headerMeta = {
@@ -14,12 +14,13 @@ const headerMeta = {
   '/erp/gaji': { title: 'Gaji & Payroll', subtitle: 'Rekap gaji, kasbon, dan pembayaran' },
 }
 
+// roles: siapa yang boleh melihat menu (kosong = semua role).
 const navItems = [
   {
     to: '/erp',
     label: 'Dashboard',
     end: true,
-    ownerOnly: true,
+    roles: ['owner', 'admin'],
     icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   },
   {
@@ -30,7 +31,7 @@ const navItems = [
   {
     to: '/erp/menu',
     label: 'Menu',
-    ownerOnly: true,
+    roles: ['owner', 'admin'],
     icon: 'M4 6h16M4 6v12a2 2 0 002 2h12a2 2 0 002-2V6M4 6l2-4h12l2 4M9 11h6',
   },
   {
@@ -41,25 +42,25 @@ const navItems = [
   {
     to: '/erp/stock',
     label: 'Stock',
-    ownerOnly: true,
+    roles: ['owner', 'admin'],
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
   },
   {
     to: '/erp/keuangan',
     label: 'Keuangan',
-    ownerOnly: true,
+    roles: ['owner'],
     icon: 'M17 9V7a4 4 0 00-8 0v2m-2 0h12a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7a2 2 0 012-2z',
   },
   {
     to: '/erp/karyawan',
     label: 'Karyawan',
-    ownerOnly: true,
+    roles: ['owner'],
     icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-4-4a4 4 0 11-8 0 4 4 0 018 0zM4 21v-1a5 5 0 015-5h2a5 5 0 015 5v1',
   },
   {
     to: '/erp/gaji',
     label: 'Gaji',
-    ownerOnly: true,
+    roles: ['owner'],
     icon: 'M12 8c-1.66 0-3 .9-3 2s1.34 2 3 2 3 .9 3 2-1.34 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z',
   },
 ]
@@ -74,7 +75,7 @@ export default function AdminLayout() {
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
 
-  const visibleNav = navItems.filter((item) => !item.ownerOnly || user?.role === 'owner')
+  const visibleNav = navItems.filter((item) => !item.roles || item.roles.includes(user?.role))
   const roleLabel = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
   const meta = headerMeta[location.pathname] ?? { title: 'Dashboard', subtitle: '' }
 
@@ -83,8 +84,7 @@ export default function AdminLayout() {
     if (!current) {
       navigate('/login')
     } else if (!isAllowed(current.role, location.pathname)) {
-      // Karyawan hanya boleh di Absensi; selain itu khusus super admin.
-      navigate('/erp/absensi', { replace: true })
+      navigate(ROLE_HOME[current.role] ?? '/erp/absensi', { replace: true })
     } else {
       setUser(current)
     }
