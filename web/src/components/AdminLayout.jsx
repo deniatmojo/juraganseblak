@@ -26,6 +26,7 @@ const navItems = [
   {
     to: '/erp/pos',
     label: 'Kasir / POS',
+    roles: ['owner', 'admin', 'kasir'],
     icon: 'M3 10h18M3 6h18M4 6v12a1 1 0 001 1h14a1 1 0 001-1V6M9 14h6',
   },
   {

@@ -133,6 +133,38 @@ function ClockDial({ value, onChange, onClose, name }) {
   )
 }
 
+/* ============ FILTER RENTANG TANGGAL (dipakai rekap & daftar karyawan) ============ */
+const PRESETS = [
+  ['today', 'Hari Ini'],
+  ['week', '7 Hari Terakhir'],
+  ['month', 'Bulan Ini'],
+  ['lastmonth', 'Bulan Lalu'],
+  ['custom', 'Rentang Custom'],
+]
+
+function RangeFilter({ preset, onPreset, from, to, onFrom, onTo }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {PRESETS.map(([k, label]) => (
+        <button
+          key={k}
+          onClick={() => onPreset(k)}
+          className={`text-xs font-bold px-3.5 py-2 rounded-full transition-colors ${preset === k ? 'bg-char text-white' : 'bg-cream text-char/60 hover:bg-cream/70'}`}
+        >
+          {label}
+        </button>
+      ))}
+      {preset === 'custom' && (
+        <span className="flex items-center gap-2">
+          <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} className="border border-black/15 rounded-full px-3 py-1.5 text-xs" />
+          <span className="text-char/40 text-xs">s/d</span>
+          <input type="date" value={to} onChange={(e) => onTo(e.target.value)} className="border border-black/15 rounded-full px-3 py-1.5 text-xs" />
+        </span>
+      )}
+    </div>
+  )
+}
+
 /* ============ REKAP ABSENSI — filter rentang tanggal, pribadi vs semua ============ */
 function RekapAbsensi({ personal }) {
   const [preset, setPreset] = useState('month')
@@ -154,14 +186,6 @@ function RekapAbsensi({ personal }) {
   }, [from, to])
   useEffect(load, [load])
 
-  const presets = [
-    ['today', 'Hari Ini'],
-    ['week', '7 Hari Terakhir'],
-    ['month', 'Bulan Ini'],
-    ['lastmonth', 'Bulan Lalu'],
-    ['custom', 'Rentang Custom'],
-  ]
-
   return (
     <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 border-b border-black/5">
@@ -171,24 +195,7 @@ function RekapAbsensi({ personal }) {
             {personal ? 'Riwayat absensi pribadi Anda.' : 'Ringkasan kehadiran seluruh karyawan aktif.'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {presets.map(([k, label]) => (
-            <button
-              key={k}
-              onClick={() => applyPreset(k)}
-              className={`text-xs font-bold px-3.5 py-2 rounded-full transition-colors ${preset === k ? 'bg-char text-white' : 'bg-cream text-char/60 hover:bg-cream/70'}`}
-            >
-              {label}
-            </button>
-          ))}
-          {preset === 'custom' && (
-            <span className="flex items-center gap-2">
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border border-black/15 rounded-full px-3 py-1.5 text-xs" />
-              <span className="text-char/40 text-xs">s/d</span>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border border-black/15 rounded-full px-3 py-1.5 text-xs" />
-            </span>
-          )}
-        </div>
+        <RangeFilter preset={preset} onPreset={applyPreset} from={from} to={to} onFrom={setFrom} onTo={setTo} />
       </div>
       <div className="overflow-x-auto">
         {error ? (
@@ -270,7 +277,10 @@ export default function Absensi() {
   const isBoss = isOwner || user?.role === 'admin'
 
   const [rows, setRows] = useState([])
-  const [date, setDate] = useState(iso(new Date()))
+  const [empPreset, setEmpPreset] = useState('today')
+  const [empFrom, setEmpFrom] = useState(iso(new Date()))
+  const [empTo, setEmpTo] = useState(iso(new Date()))
+  const [empRecap, setEmpRecap] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [statusForm, setStatusForm] = useState(null) // { employee_id, name, status, note }
@@ -281,12 +291,26 @@ export default function Absensi() {
   const myEmployee = rows.find((r) => r.user_id === user?.id)
   const myRow = myEmployee
 
-  const load = useCallback(() => {
-    api.get(`/attendance?date=${date}`)
-      .then(setRows)
-      .catch((e) => setError(e.message))
-  }, [date])
-  useEffect(load, [load])
+  const singleDay = empFrom === empTo
+
+  const applyEmpPreset = (k) => {
+    setEmpPreset(k)
+    const r = rangePreset(k)
+    if (r) { setEmpFrom(r.from); setEmpTo(r.to) }
+  }
+
+  // Satu hari → detail absensi per karyawan; rentang → hitungan per karyawan.
+  useEffect(() => {
+    if (singleDay) {
+      api.get(`/attendance?date=${empFrom}`)
+        .then(setRows)
+        .catch((e) => setError(e.message))
+    } else {
+      api.get(`/attendance/recap?from=${empFrom}&to=${empTo}`)
+        .then((d) => setEmpRecap(d.employees || []))
+        .catch((e) => setError(e.message))
+    }
+  }, [singleDay, empFrom, empTo])
 
   const loadSchedule = useCallback(() => {
     if (!isOwner) return
@@ -301,21 +325,27 @@ export default function Absensi() {
     setError('')
     try {
       await api.post(`/attendance/${kind}`)
-      load()
+      refreshToday()
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
+  }
+
+  const refreshToday = () => {
+    if (singleDay) {
+      api.get(`/attendance?date=${empFrom}`).then(setRows).catch(() => {})
+    }
   }
 
   const saveStatus = async () => {
     try {
       await api.patch('/attendance/status', {
         employee_id: statusForm.employee_id,
-        work_date: date,
+        work_date: empFrom,
         status: statusForm.status,
         note: statusForm.note || null,
       })
       setStatusForm(null)
-      load()
+      refreshToday()
     } catch (e) { setError(e.message) }
   }
 
@@ -332,14 +362,14 @@ export default function Absensi() {
         work_hours: Number(s.work_hours || 8),
       })
       setSchedule((prev) => prev.map((x) => (x.id === s.id ? { ...x, dirty: false } : x)))
-      load()
+      refreshToday()
     } catch (e) { setError(e.message) }
     finally { setSavingId(null) }
   }
 
   const hadir = rows.filter((r) => r.status === 'hadir' || r.status === 'terlambat').length
   const izinSakit = rows.filter((r) => r.status === 'izin' || r.status === 'sakit').length
-  const alpa = rows.filter((r) => r.status === 'alpa' || (!r.status && date < iso(new Date()))).length
+  const alpa = rows.filter((r) => r.status === 'alpa' || (!r.status && empFrom < iso(new Date()))).length
 
   const summary = [
     { value: hadir, label: 'Hadir', iconCls: 'bg-green-50', color: 'text-green-600', icon: 'M5 13l4 4L19 7' },
@@ -385,8 +415,8 @@ export default function Absensi() {
         </button>
       </div>
 
-      {/* REKAP ABSENSI — pribadi (kasir/karyawan), semua karyawan (owner/admin) */}
-      <RekapAbsensi personal={!isBoss} />
+      {/* REKAP PRIBADI — hanya untuk kasir/karyawan biasa */}
+      {!isBoss && <RekapAbsensi personal />}
 
       {isBoss && (
         <>
@@ -485,21 +515,19 @@ export default function Absensi() {
             </div>
           )}
 
-          {/* EMPLOYEE TABLE */}
+          {/* REKAP SEMUA KARYAWAN — detail saat 1 hari, hitungan saat rentang */}
           <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 border-b border-black/5">
-              <h2 className="font-bold">Daftar Karyawan</h2>
-              <div className="flex items-center gap-3">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="border border-black/15 rounded-full px-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-chili/30"
-                />
-                <span className="text-xs text-char/50">{rows.length} karyawan</span>
+              <div>
+                <h2 className="font-bold">Rekap Absensi Semua Karyawan</h2>
+                <p className="text-xs text-char/50 mt-0.5">
+                  {singleDay ? `Detail absensi per karyawan — ${empFrom.split('-').reverse().join('/')}` : `Hitungan kehadiran ${empFrom.split('-').reverse().join('/')} s/d ${empTo.split('-').reverse().join('/')}`}
+                </p>
               </div>
+              <RangeFilter preset={empPreset} onPreset={applyEmpPreset} from={empFrom} to={empTo} onFrom={setEmpFrom} onTo={setEmpTo} />
             </div>
             <div className="overflow-x-auto">
+              {singleDay ? (
               <table className="w-full text-sm min-w-[860px]">
                 <thead>
                   <tr className="text-left text-char/40 text-xs uppercase border-b border-black/5">
@@ -556,6 +584,44 @@ export default function Absensi() {
                   ))}
                 </tbody>
               </table>
+              ) : (
+              <table className="w-full text-sm min-w-[720px]">
+                <thead>
+                  <tr className="text-left text-char/40 text-xs uppercase border-b border-black/5">
+                    <th className="px-6 py-3 font-bold">Karyawan</th>
+                    <th className="px-4 py-3 font-bold">Posisi</th>
+                    <th className="px-4 py-3 font-bold text-center">Hadir</th>
+                    <th className="px-4 py-3 font-bold text-center">Terlambat</th>
+                    <th className="px-4 py-3 font-bold text-center">Izin</th>
+                    <th className="px-4 py-3 font-bold text-center">Sakit</th>
+                    <th className="px-4 py-3 font-bold text-center">Alpa</th>
+                    <th className="px-6 py-3 font-bold text-center">Total Tercatat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/5">
+                  {empRecap.length === 0 && (
+                    <tr><td colSpan={8} className="px-6 py-8 text-center text-char/40">Belum ada data pada rentang ini.</td></tr>
+                  )}
+                  {empRecap.map((r) => (
+                    <tr key={r.id} className="hover:bg-cream/60 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className="w-9 h-9 rounded-full bg-cream grid place-items-center font-display text-sm shrink-0">{r.name.slice(0, 1)}</span>
+                          <span className="font-semibold">{r.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-char/60">{r.posisi || '—'}</td>
+                      <td className="px-4 py-4 text-center font-bold text-green-700">{r.hadir}</td>
+                      <td className="px-4 py-4 text-center font-bold text-ember">{r.terlambat}</td>
+                      <td className="px-4 py-4 text-center text-char/60">{r.izin}</td>
+                      <td className="px-4 py-4 text-center text-char/60">{r.sakit}</td>
+                      <td className="px-4 py-4 text-center font-bold text-chili">{r.alpa}</td>
+                      <td className="px-6 py-4 text-center font-display">{r.tercatat}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              )}
             </div>
           </div>
         </>
@@ -577,7 +643,7 @@ export default function Absensi() {
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setStatusForm(null)}></div>
           <div className="relative bg-white rounded-2xl w-full max-w-sm p-7">
             <h2 className="font-display text-xl uppercase mb-1">Set Absensi</h2>
-            <p className="text-char/50 text-sm mb-6">{statusForm.name} — {date}</p>
+            <p className="text-char/50 text-sm mb-6">{statusForm.name} — {empFrom}</p>
             <label className="block text-sm font-bold mb-1.5">Status</label>
             <select value={statusForm.status} onChange={(e) => setStatusForm({ ...statusForm, status: e.target.value })} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm mb-4">
               <option value="izin">Izin</option>
