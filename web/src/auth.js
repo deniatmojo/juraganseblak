@@ -71,12 +71,11 @@ export function login(acc) {
 }
 
 // Login server-side: POST /api/auth/login → simpan token + profil.
-// Role DB ('owner'|'admin'|'kasir') dipetakan ke role UI ('owner'|'karyawan').
+// Role DB dipakai apa adanya: owner | admin | kasir | karyawan.
 export async function serverLogin(email, password) {
   const { token, user } = await api.post('/auth/login', { email, password })
-  const role = user.role === 'kasir' ? 'karyawan' : 'owner'
   setToken(token)
-  const session = { id: user.id, name: user.name, email: user.email, role, position: user.role }
+  const session = { id: user.id, name: user.name, email: user.email, role: user.role, position: user.role }
   sessionStorage.setItem('erp_user', JSON.stringify(session))
   return session
 }
@@ -103,7 +102,7 @@ export function getCurrentUser() {
 // - admin  (Admin)        : POS & Absensi (tanpa atur jadwal, tanpa Gaji/Karyawan)
 // - kasir  (Karyawan Kasir): POS & Absensi
 // - karyawan (Karyawan)   : Absensi saja (absen harian + rekap sendiri)
-export const ROLE_HOME = { owner: '/erp', kasir: '/erp/pos', karyawan: '/erp/absensi' }
+export const ROLE_HOME = { owner: '/erp', admin: '/erp/pos', kasir: '/erp/pos', karyawan: '/erp/absensi' }
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
