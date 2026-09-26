@@ -32,7 +32,12 @@ export default function LabaRugi() {
       blocks: [
         { heading: 'PENDAPATAN', rows: d.revenues.map((r) => ({ label: r.label, value: r.amount, sub: true })) },
         { rows: [{ label: 'Total Pendapatan', value: d.revenue_total, strong: true }] },
-        { heading: 'HARGA POKOK PENJUALAN (HPP)', rows: [{ label: `HPP dari ${d.n_orders} pesanan`, value: d.hpp, sub: true, negative: true }] },
+        { heading: 'HARGA POKOK PENJUALAN (HPP)', rows: [
+          { label: 'Persediaan awal periode', value: d.inventory.opening, sub: true },
+          { label: 'Pembelian bahan selama periode', value: d.inventory.purchases, sub: true },
+          { label: 'Persediaan akhir periode', value: d.inventory.closing, sub: true, negative: true },
+          { label: 'HPP (bahan terpakai)', value: d.hpp, strong: true, negative: true },
+        ] },
         { rows: [{ label: 'Laba Kotor', value: d.gross_profit, strong: true }] },
         { heading: 'BEBAN OPERASIONAL', rows: d.expenses.map((r) => ({ label: r.label, value: r.amount, sub: true, negative: true })) },
         { rows: [{ label: 'Total Beban', value: d.expense_total, strong: true, negative: true }] },
@@ -65,7 +70,10 @@ export default function LabaRugi() {
               <div className="flex justify-between font-bold pt-2 border-t border-black/10"><span>Total Pendapatan</span><span>{fmtRp(data.revenue_total)}</span></div>
 
               <p className="text-xs font-bold text-char/40 uppercase mt-6 mb-2">Harga Pokok Penjualan</p>
-              <div className="flex justify-between text-char/70"><span className="pl-2">HPP dari {data.n_orders} pesanan</span><span>− {fmtRp(data.hpp)}</span></div>
+              <div className="flex justify-between text-char/70"><span className="pl-2">Persediaan awal periode</span><span>{fmtRp(data.inventory.opening)}</span></div>
+              <div className="flex justify-between text-char/70"><span className="pl-2">Pembelian bahan selama periode</span><span>+ {fmtRp(data.inventory.purchases)}</span></div>
+              <div className="flex justify-between text-char/70"><span className="pl-2">Persediaan akhir periode</span><span>− {fmtRp(data.inventory.closing)}</span></div>
+              <div className="flex justify-between font-semibold border-t border-black/5 pt-2 mt-2"><span className="pl-2">HPP (bahan terpakai)</span><span>− {fmtRp(data.hpp)}</span></div>
               <div className="flex justify-between font-bold pt-2 border-t border-black/10"><span>Laba Kotor</span><span className="text-char">{fmtRp(data.gross_profit)}</span></div>
 
               <p className="text-xs font-bold text-char/40 uppercase mt-6 mb-2">Beban Operasional</p>
@@ -92,7 +100,7 @@ export default function LabaRugi() {
                 <span className="w-10 h-10 rounded-xl bg-green-50 grid place-items-center"><svg className="w-5 h-5 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></span>
                 <div><p className="text-xs text-char/50">Margin Laba Kotor</p><p className="font-display text-2xl">{data.revenue_total > 0 ? Math.round((data.gross_profit / data.revenue_total) * 100) : 0}%</p></div>
               </div>
-              <p className="text-xs text-char/40 leading-relaxed">HPP dihitung otomatis dari resep/HPP tiap menu yang terjual pada periode ini (pesanan void tidak dihitung). Pendapatan &amp; beban dari transaksi kas tercatat.</p>
+              <p className="text-xs text-char/40 leading-relaxed">HPP dihitung metode persediaan: persediaan awal + pembelian bahan − persediaan akhir. Isi harga beli saat catat barang masuk di modul Stock, dan lakukan stok opname rutin supaya persediaan akhir akurat. Pesanan void tidak dihitung.</p>
             </div>
           </div>
         </div>

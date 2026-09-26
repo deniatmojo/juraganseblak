@@ -39,16 +39,53 @@ function classify(type, category) {
   return { group: 'operating', side: 'out', label: catLabel(c) };
 }
 
-async function hppForPeriod(from, to) {
-  const [[row]] = await pool.query(
-    `SELECT COALESCE(SUM(oi.qty * p.hpp), 0) AS hpp, COUNT(DISTINCT o.id) AS n_orders
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     JOIN products p ON p.id = oi.product_id
-     WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at < :toPlus`,
-    { from: `${from} 00:00:00`, toPlus: `${to} 23:59:59` }
+// ---------- PERSEDIAAN & HPP (metode akuntansi penuh) ----------
+// Nilai persediaan pada tanggal tertentu: stok sekarang dikurangi dampak
+// pergerakan setelah tanggal tsb (masuk mengurangi persediaan masa lalu,
+// keluar menambahkannya kembali). Item dinilai dengan harga beli terakhir.
+async function inventoryValueAt(dateEndExclusive) {
+  const [[nowVal]] = await pool.query(
+    `SELECT COALESCE(SUM(qty * unit_cost), 0) v FROM stock_items WHERE is_active = 1`
   );
-  return { hpp: Number(row.hpp), nOrders: Number(row.n_orders) };
+  const [[mv]] = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN m.type = 'in' THEN m.qty * COALESCE(NULLIF(m.unit_cost, 0), s.unit_cost) ELSE 0 END), 0) AS in_val,
+       COALESCE(SUM(CASE WHEN m.type = 'out' THEN m.qty * s.unit_cost ELSE 0 END), 0) AS out_val
+     FROM stock_movements m JOIN stock_items s ON s.id = m.item_id
+     WHERE m.created_at >= :d`,
+    { d: dateEndExclusive }
+  );
+  return Number(nowVal.v) - Number(mv.in_val) + Number(mv.out_val);
+}
+
+// Total pembelian bahan dalam periode = barang masuk (in) bernilai, kecuali stok awal.
+async function purchasesInPeriod(from, to) {
+  const [[row]] = await pool.query(
+    `SELECT COALESCE(SUM(m.qty * COALESCE(NULLIF(m.unit_cost, 0), s.unit_cost)), 0) v
+     FROM stock_movements m JOIN stock_items s ON s.id = m.item_id
+     WHERE m.type = 'in' AND (m.note IS NULL OR m.note != 'Stok awal')
+       AND m.created_at >= :from AND m.created_at <= :to`,
+    { from: `${from} 00:00:00`, to: `${to} 23:59:59` }
+  );
+  return Number(row.v);
+}
+
+// HPP penuh = Persediaan awal + Pembelian − Persediaan akhir.
+async function hppForPeriod(from, to) {
+  const [opening, purchases, closing, recipe] = await Promise.all([
+    inventoryValueAt(`${from} 00:00:00`),
+    purchasesInPeriod(from, to),
+    inventoryValueAt(`${to} 23:59:59`),
+    pool.query(
+      `SELECT COALESCE(SUM(oi.qty * p.hpp), 0) AS hpp, COUNT(DISTINCT o.id) AS n_orders
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN products p ON p.id = oi.product_id
+       WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at <= :to`,
+      { from: `${from} 00:00:00`, to: `${to} 23:59:59` }
+    ).then(([rows]) => ({ hpp: Number(rows[0].hpp), nOrders: Number(rows[0].n_orders) })),
+  ]);
+  return { opening, purchases, closing, hpp_recipe: recipe.hpp, nOrders: recipe.nOrders, hpp: opening + purchases - closing };
 }
 
 async function txInPeriod(from, to) {
@@ -78,7 +115,7 @@ router.get('/income-statement', async (req, res, next) => {
   try {
     const r = parseRange(req, res); if (!r) return;
     const txs = await txInPeriod(r.from, r.to);
-    const { hpp, nOrders } = await hppForPeriod(r.from, r.to);
+    const inv = await hppForPeriod(r.from, r.to);
 
     const revenues = [];
     const expenses = [];
@@ -94,6 +131,9 @@ router.get('/income-statement', async (req, res, next) => {
         const label = catLabel('void');
         const ex = revenues.find((x) => x.label === label);
         if (ex) ex.amount -= t.amount; else revenues.push({ label, amount: -t.amount });
+      } else if (c === 'belanja') {
+        // Pembelian bahan TIDAK jadi beban laba rugi — nilainya mengalir ke
+        // persediaan; yang jadi biaya hanyalah bahan yang terpakai (HPP).
       } else {
         const label = catLabel(c);
         const ex = expenses.find((x) => x.label === label);
@@ -102,11 +142,16 @@ router.get('/income-statement', async (req, res, next) => {
     }
     const revenueTotal = revenues.reduce((s, x) => s + x.amount, 0);
     const expenseTotal = expenses.reduce((s, x) => s + x.amount, 0);
-    const gross = revenueTotal - hpp;
+    const gross = revenueTotal - inv.hpp;
     res.json({
       from: r.from, to: r.to,
-      revenues, hpp, n_orders: nOrders,
+      revenues, n_orders: inv.nOrders,
       revenue_total: revenueTotal,
+      hpp: inv.hpp,
+      inventory: {
+        opening: inv.opening, purchases: inv.purchases, closing: inv.closing,
+      },
+      hpp_recipe: inv.hpp_recipe,
       gross_profit: gross,
       expenses, expense_total: expenseTotal,
       net_profit: gross - expenseTotal,

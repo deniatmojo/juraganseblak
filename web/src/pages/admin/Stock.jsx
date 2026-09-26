@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api'
 
 const inputCls = 'w-full bg-white border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili'
+const formatRp = (num) => 'Rp ' + Math.round(num).toLocaleString('id-ID')
 
 export default function Stock() {
   const [stockItems, setStockItems] = useState([])
@@ -21,8 +22,8 @@ export default function Stock() {
 
   useEffect(load, [])
 
-  const openMove = (item, type) => setMoveForm({ item, type, qty: '', note: '' })
-  const openAdd = () => setAddForm({ name: '', category: 'Protein', unit: 'kg', qty: '', min_qty: '' })
+  const openMove = (item, type) => setMoveForm({ item, type, qty: '', note: '', unit_cost: '' })
+  const openAdd = () => setAddForm({ name: '', category: 'Protein', unit: 'kg', qty: '', min_qty: '', unit_cost: '' })
 
   const saveMove = async () => {
     try {
@@ -30,6 +31,7 @@ export default function Stock() {
         type: moveForm.type,
         qty: Number(moveForm.qty),
         note: moveForm.note || null,
+        unit_cost: Number(moveForm.unit_cost || 0),
       })
       setMoveForm(null)
       load()
@@ -46,6 +48,7 @@ export default function Stock() {
         unit: addForm.unit,
         qty: Number(addForm.qty || 0),
         min_qty: Number(addForm.min_qty || 0),
+        unit_cost: Number(addForm.unit_cost || 0),
       })
       setAddForm(null)
       load()
@@ -203,6 +206,29 @@ export default function Stock() {
               <span className="text-sm font-bold text-char/50 w-14 shrink-0">{moveForm.item.unit}</span>
             </div>
 
+            {moveForm.type === 'in' && (
+              <>
+                <label className="block text-sm font-bold mb-1.5">Harga Beli per {moveForm.item.unit} <span className="font-normal text-chili">*</span></label>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-bold text-char/50 shrink-0">Rp</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="mis. 35000"
+                    value={moveForm.unit_cost}
+                    onChange={(e) => setMoveForm({ ...moveForm, unit_cost: e.target.value })}
+                    className="flex-1 border border-black/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30"
+                  />
+                </div>
+                {Number(moveForm.qty) > 0 && Number(moveForm.unit_cost) > 0 && (
+                  <p className="text-xs font-bold text-ember mb-2">
+                    Total pembelian: {formatRp(Number(moveForm.qty) * Number(moveForm.unit_cost))} — otomatis tercatat di Keuangan sebagai belanja bahan.
+                  </p>
+                )}
+              </>
+            )}
+
             <label className="block text-sm font-bold mb-1.5">Catatan <span className="font-normal text-char/40">(opsional)</span></label>
             <input
               type="text"
@@ -251,10 +277,15 @@ export default function Stock() {
                   <input type="number" min="0" step="0.01" value={addForm.qty} onChange={(e) => setAddForm({ ...addForm, qty: e.target.value })} className={inputCls} />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold mb-1.5">Batas Minimum</label>
-                  <input type="number" min="0" step="0.01" value={addForm.min_qty} onChange={(e) => setAddForm({ ...addForm, min_qty: e.target.value })} className={inputCls} />
+                  <label className="block text-sm font-bold mb-1.5">Harga per {addForm.unit}</label>
+                  <input type="number" min="0" step="1" placeholder="Rp" value={addForm.unit_cost} onChange={(e) => setAddForm({ ...addForm, unit_cost: e.target.value })} className={inputCls} />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-bold mb-1.5">Batas Minimum</label>
+                <input type="number" min="0" step="0.01" value={addForm.min_qty} onChange={(e) => setAddForm({ ...addForm, min_qty: e.target.value })} className={inputCls} />
+              </div>
+              <p className="text-xs text-char/40">Harga per unit dipakai untuk menilai persediaan &amp; menghitung HPP di laporan Laba Rugi. Stok awal tidak dihitung sebagai pembelian.</p>
             </div>
             <div className="flex gap-3 mt-7">
               <button onClick={() => setAddForm(null)} className="flex-1 border border-black/15 text-char font-bold py-3 rounded-full text-sm">Batal</button>
