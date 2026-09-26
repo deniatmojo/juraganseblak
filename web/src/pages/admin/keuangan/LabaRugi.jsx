@@ -31,11 +31,11 @@ export default function LabaRugi() {
       filename: `Laba-Rugi_${from}_${to}.pdf`,
       blocks: [
         { heading: 'PENDAPATAN', rows: d.revenues.map((r) => ({ label: r.label, value: r.amount, sub: true })) },
-        { rows: [{ label: 'Total Pendapatan', value: d.revenue_total, strong: true }], rule: true },
+        { rows: [{ label: 'Total Pendapatan', value: d.revenue_total, strong: true }] },
         { heading: 'HARGA POKOK PENJUALAN (HPP)', rows: [{ label: `HPP dari ${d.n_orders} pesanan`, value: d.hpp, sub: true, negative: true }] },
-        { rows: [{ label: 'Laba Kotor', value: d.gross_profit, strong: true }], rule: true },
+        { rows: [{ label: 'Laba Kotor', value: d.gross_profit, strong: true }] },
         { heading: 'BEBAN OPERASIONAL', rows: d.expenses.map((r) => ({ label: r.label, value: r.amount, sub: true, negative: true })) },
-        { rows: [{ label: 'Total Beban', value: d.expense_total, strong: true, negative: true }], rule: true },
+        { rows: [{ label: 'Total Beban', value: d.expense_total, strong: true, negative: true }] },
         { rows: [{ label: d.net_profit >= 0 ? 'LABA BERSIH' : 'RUGI BERSIH', value: d.net_profit, strong: true, negative: d.net_profit < 0 }] },
       ],
     })
