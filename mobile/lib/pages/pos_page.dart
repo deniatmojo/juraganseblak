@@ -296,7 +296,7 @@ class _PosPageState extends State<PosPage> {
             ])
           : Column(children: [
               Expanded(child: menuSection),
-              SizedBox(height: 360, child: cartSection),
+              SizedBox(height: 264, child: cartSection),
             ]);
     }
 
@@ -483,7 +483,7 @@ class _PosPageState extends State<PosPage> {
               crossAxisCount: MediaQuery.of(context).size.width > 560 ? 3 : 2,
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
-              childAspectRatio: 1.6,
+              childAspectRatio: 1.35,
               children: [
                 for (final m in menuList)
                   Material(
@@ -506,7 +506,7 @@ class _PosPageState extends State<PosPage> {
                               borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(14)),
                               child: Image.network(
-                                m.imageUrl ?? '',
+                                _imgUrl(m.imageUrl),
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => Icon(
                                     Icons.ramen_dining,
@@ -548,6 +548,14 @@ class _PosPageState extends State<PosPage> {
           ),
         ],
       );
+
+  /// URL gambar: path relatif /uploads/... di-resolve ke origin server.
+  String _imgUrl(String? path) {
+    final s = path ?? '';
+    if (s.isEmpty) return '';
+    if (s.startsWith('http')) return s;
+    return ApiClient.baseUrl.replaceAll(RegExp(r'/api$'), '') + s;
+  }
 
   Widget _shiftBar() {
     final active = shift != null;
@@ -601,7 +609,7 @@ class _PosPageState extends State<PosPage> {
   Widget _cartSection() => Container(
         width: MediaQuery.of(context).size.width > 840 ? 400 : double.infinity,
         margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
@@ -635,7 +643,7 @@ class _PosPageState extends State<PosPage> {
               child: cart.isEmpty
                   ? Center(
                       child: Text(
-                        'Keranjang masih kosong.\nPilih menu di sebelah kiri.',
+                        'Keranjang kosong — pilih menu di atas.',
                         textAlign: TextAlign.center,
                         style: AppText.body(size: 12, color: Colors.black26),
                       ),

@@ -131,6 +131,8 @@ class _ErpShellState extends State<ErpShell> {
                             style: AppText.display(size: 22),
                             overflow: TextOverflow.ellipsis),
                         Text(entry.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppText.body(size: 11, color: Colors.black45)),
                       ],
                     ),

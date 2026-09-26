@@ -133,34 +133,31 @@ class _StockPageState extends State<StockPage> {
                       weight: FontWeight.w700,
                       color: AppColors.chili)),
             ),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            childAspectRatio: 2.1,
-            children: [
-              StatCard(
-                  icon: Icons.inventory_2_outlined,
-                  iconColor: AppColors.char,
-                  iconBg: AppColors.char.withValues(alpha: 0.05),
-                  value: '${items.length}',
-                  label: 'Total Jenis Bahan'),
-              StatCard(
-                  icon: Icons.error_outline,
-                  iconColor: AppColors.chili,
-                  iconBg: AppColors.redBg,
-                  value: '$critical',
-                  label: 'Stok Kritis'),
-              StatCard(
-                  icon: Icons.check_circle_outline,
-                  iconColor: AppColors.greenOk,
-                  iconBg: AppColors.greenBg,
-                  value: '${items.length - critical}',
-                  label: 'Stok Aman'),
-            ],
-          ),
+          Row(children: [
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.inventory_2_outlined,
+                    iconColor: AppColors.char,
+                    iconBg: AppColors.char.withValues(alpha: 0.05),
+                    value: '${items.length}',
+                    label: 'Jenis Bahan')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.error_outline,
+                    iconColor: AppColors.chili,
+                    iconBg: AppColors.redBg,
+                    value: '$critical',
+                    label: 'Kritis')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.check_circle_outline,
+                    iconColor: AppColors.greenOk,
+                    iconBg: AppColors.greenBg,
+                    value: '${items.length - critical}',
+                    label: 'Aman')),
+          ]),
           const SizedBox(height: 20),
           SectionCard(
             padding: EdgeInsets.zero,

@@ -54,6 +54,14 @@ class _MenuPageState extends State<MenuPage> {
     }
   }
 
+  /// URL gambar: path relatif /uploads/... di-resolve ke origin server.
+  String _imgUrl(dynamic path) {
+    final s = '$path';
+    if (s.isEmpty) return '';
+    if (s.startsWith('http')) return s;
+    return ApiClient.baseUrl.replaceAll(RegExp(r'/api$'), '') + s;
+  }
+
   String _catLabel(String key) {
     for (final c in categories) {
       if ('${c['key']}' == key) return '${c['label']}';
@@ -207,34 +215,31 @@ class _MenuPageState extends State<MenuPage> {
                       weight: FontWeight.w700,
                       color: AppColors.chili)),
             ),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            childAspectRatio: 2.1,
-            children: [
-              StatCard(
-                  icon: Icons.restaurant_menu,
-                  iconColor: AppColors.char,
-                  iconBg: AppColors.char.withValues(alpha: 0.05),
-                  value: '${products.length}',
-                  label: 'Total Menu'),
-              StatCard(
-                  icon: Icons.check_circle_outline,
-                  iconColor: AppColors.greenOk,
-                  iconBg: AppColors.greenBg,
-                  value: '$avail',
-                  label: 'Tersedia'),
-              StatCard(
-                  icon: Icons.error_outline,
-                  iconColor: AppColors.chili,
-                  iconBg: AppColors.redBg,
-                  value: '${products.length - avail}',
-                  label: 'Habis / Nonaktif'),
-            ],
-          ),
+          Row(children: [
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.restaurant_menu,
+                    iconColor: AppColors.char,
+                    iconBg: AppColors.char.withValues(alpha: 0.05),
+                    value: '${products.length}',
+                    label: 'Total Menu')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.check_circle_outline,
+                    iconColor: AppColors.greenOk,
+                    iconBg: AppColors.greenBg,
+                    value: '$avail',
+                    label: 'Tersedia')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.error_outline,
+                    iconColor: AppColors.chili,
+                    iconBg: AppColors.redBg,
+                    value: '${products.length - avail}',
+                    label: 'Habis')),
+          ]),
           const SizedBox(height: 20),
           SectionCard(
             padding: EdgeInsets.zero,
@@ -311,55 +316,69 @@ class _MenuPageState extends State<MenuPage> {
                 ),
                 const Divider(height: 20),
                 for (final p in filtered)
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 24),
-                    leading: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: AppColors.chili.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          '${p['image_url'] ?? ''}',
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Icon(
-                              Icons.ramen_dining,
-                              color: AppColors.chili.withValues(alpha: 0.5)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: AppColors.chili.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            _imgUrl(p['image_url']),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Icon(
+                                Icons.ramen_dining,
+                                color: AppColors.chili.withValues(alpha: 0.5)),
+                          ),
                         ),
                       ),
-                    ),
-                    title: Text('${p['name']}',
-                        style:
-                            AppText.body(size: 14, weight: FontWeight.w700)),
-                    subtitle: Text(
-                        '${_catLabel('${p['category']}')} · HPP ${formatRp(num.tryParse('${p['hpp']}') ?? 0)}',
-                        style:
-                            AppText.body(size: 11, color: Colors.black45)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                            formatRp(num.tryParse('${p['price']}') ?? 0),
-                            style: AppText.body(
-                                size: 14,
-                                weight: FontWeight.w700,
-                                color: AppColors.chili)),
-                        const SizedBox(width: 10),
-                        (p['is_active'] == 1 || p['is_active'] == true) &&
-                                (p['is_available'] == 1 ||
-                                    p['is_available'] == true)
-                            ? StatusChip.ok('Tersedia')
-                            : StatusChip.danger('Habis'),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => _openForm(p),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${p['name']}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.body(
+                                    size: 13, weight: FontWeight.w700)),
+                            Text(
+                                '${_catLabel('${p['category']}')} · HPP ${formatRp(num.tryParse('${p['hpp']}') ?? 0)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.body(
+                                    size: 11, color: Colors.black45)),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                              formatRp(num.tryParse('${p['price']}') ?? 0),
+                              style: AppText.body(
+                                  size: 13,
+                                  weight: FontWeight.w700,
+                                  color: AppColors.chili)),
+                          (p['is_active'] == 1 || p['is_active'] == true) &&
+                                  (p['is_available'] == 1 ||
+                                      p['is_available'] == true)
+                              ? StatusChip.ok('Tersedia')
+                              : StatusChip.danger('Habis'),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        onPressed: () => _openForm(p),
+                      ),
+                    ]),
                   ),
                 if (filtered.isEmpty)
                   Padding(

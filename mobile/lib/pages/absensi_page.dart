@@ -307,34 +307,31 @@ class _AbsensiPageState extends State<AbsensiPage> {
             ),
           ),
           const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            childAspectRatio: 2.1,
-            children: [
-              StatCard(
-                  icon: Icons.check_circle_outline,
-                  iconColor: AppColors.greenOk,
-                  iconBg: AppColors.greenBg,
-                  value: '$hadir',
-                  label: 'Hadir'),
-              StatCard(
-                  icon: Icons.schedule,
-                  iconColor: AppColors.ember,
-                  iconBg: AppColors.ember.withValues(alpha: 0.1),
-                  value: '$izin',
-                  label: 'Izin / Sakit'),
-              StatCard(
-                  icon: Icons.cancel_outlined,
-                  iconColor: AppColors.chili,
-                  iconBg: AppColors.redBg,
-                  value: '$alpa',
-                  label: 'Tanpa Keterangan'),
-            ],
-          ),
+          Row(children: [
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.check_circle_outline,
+                    iconColor: AppColors.greenOk,
+                    iconBg: AppColors.greenBg,
+                    value: '$hadir',
+                    label: 'Hadir')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.schedule,
+                    iconColor: AppColors.ember,
+                    iconBg: AppColors.ember.withValues(alpha: 0.1),
+                    value: '$izin',
+                    label: 'Izin/Sakit')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatCardRow(
+                    icon: Icons.cancel_outlined,
+                    iconColor: AppColors.chili,
+                    iconBg: AppColors.redBg,
+                    value: '$alpa',
+                    label: 'Alpa')),
+          ]),
           const SizedBox(height: 20),
           SectionCard(
             padding: EdgeInsets.zero,
