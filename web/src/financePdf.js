@@ -9,6 +9,9 @@ export function reportPdf({ title, subtitle, from, to, blocks, filename }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = 210
   const RIGHT = W - 16
+  // Dua kolom nominal seperti laporan laba rugi klasik:
+  // kolom 1 (rincian item) di kiri-tengah, kolom 2 (subtotal/total) di tepi kanan.
+  const COL1 = RIGHT - 32
   let y = 0
 
   const header = () => {
@@ -54,8 +57,8 @@ export function reportPdf({ title, subtitle, from, to, blocks, filename }) {
     }
     for (const row of block.rows) {
       newPageIfNeeded(10)
-      // Hierarki indent: normal 16mm, sub-item 24mm (menjorok dalam).
-      const x = row.sub ? 24 : 16
+      // Hierarki indent: normal 16mm, sub-item 22mm (menjorok dalam).
+      const x = row.sub ? 22 : 16
       doc.setFont('helvetica', row.strong ? 'bold' : 'normal')
       doc.setFontSize(row.strong ? 10 : 9)
       if (row.negative) doc.setTextColor(200, 30, 15)
@@ -63,7 +66,7 @@ export function reportPdf({ title, subtitle, from, to, blocks, filename }) {
       doc.text(String(row.label), x, y)
       // jsPDF font standar (WinAnsi) tidak punya glyph U+2212 — wajib pakai minus ASCII.
       const val = (row.negative && row.value > 0 ? '- ' : '') + (typeof row.value === 'number' ? fmtRp(Math.abs(row.value)) : String(row.value ?? '-'))
-      doc.text(val, RIGHT - (row.sub ? 6 : 0), y, { align: 'right' })
+      doc.text(val, row.sub ? COL1 : RIGHT, y, { align: 'right' })
       y += row.strong ? 7 : 5.5
     }
     if (block.rule) {
