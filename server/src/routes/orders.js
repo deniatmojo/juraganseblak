@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { linksForProducts } from './products.js';
 import { requireRole } from '../auth.js';
+import { dateCompactWib } from '../wib.js';
 
 const router = Router();
 
@@ -16,14 +17,15 @@ async function getSettings() {
     store_address: s.store_address ?? '',
     store_phone: s.store_phone ?? '',
     receipt_footer: s.receipt_footer ?? '',
+    payment_gateway: s.payment_gateway ?? 'none',
   };
 }
 
-// Nomor pesanan: JS-YYYYMMDD-NNNN (urut per hari, tanggal lokal — bukan UTC
-// agar tidak mundur sehari antara 00:00–07:00 WIB)
+// Nomor pesanan: JS-YYYYMMDD-NNNN (urut per hari, tanggal WIB eksplisit —
+// mesin server produksi berjalan UTC, agar tidak mundur sehari antara
+// 00:00–07:00 WIB)
 async function nextOrderNo(conn) {
-  const d = new Date();
-  const today = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const today = dateCompactWib();
   const prefix = `JS-${today}-`;
   const [[row]] = await conn.query(
     'SELECT order_no FROM orders WHERE order_no LIKE :p ORDER BY order_no DESC LIMIT 1',
@@ -35,12 +37,14 @@ async function nextOrderNo(conn) {
 
 // POST /api/orders — checkout POS.
 // Body: { items: [{ product_id, qty, note? }], pay_method, paid_amount?,
-//         customer_name?, table_no?, channel?, discount? }
+//         customer_name?, table_no?, channel?, discount?, pending? }
 // Harga/pajak/service SELALU dihitung ulang server-side dari DB.
+// pending=true (QRIS dinamis via gateway): pesanan disimpan 'pending', stok &
+// pemasukan dicatat baru saat webhook gateway / konfirmasi manual melunaskan.
 router.post('/', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { items, pay_method = 'cash', paid_amount = null, customer_name = null, table_no = null, channel = 'pos', discount = 0 } = req.body;
+    const { items, pay_method = 'cash', paid_amount = null, customer_name = null, table_no = null, channel = 'pos', discount = 0, pending = false } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Keranjang kosong' });
     }
@@ -67,6 +71,8 @@ router.post('/', async (req, res, next) => {
     }
 
     const settings = await getSettings();
+    // QRIS dinamis via gateway hanya kalau gateway aktif & kasir minta pending.
+    const isPending = pending === true && pay_method === 'qris' && settings.payment_gateway && settings.payment_gateway !== 'none';
     const subtotal = items.reduce((sum, it) => sum + Number(byId[it.product_id].price) * it.qty, 0);
     const tax = Math.round(subtotal * settings.tax_rate);
     const service = Math.round(subtotal * settings.service_rate);
@@ -84,8 +90,8 @@ router.post('/', async (req, res, next) => {
       `INSERT INTO orders (order_no, channel, customer_name, table_no, subtotal,
         tax_amount, service_amount, discount, total, pay_method, paid_amount, status, cashier_id, shift_id)
        VALUES (:order_no, :channel, :customer, :table_no, :subtotal,
-        :tax, :service, :discount, :total, :pay_method, :paid, 'paid', :cashier, :shift)`,
-      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, total, pay_method, paid: paid_amount, cashier: req.user?.id ?? null, shift: openShift?.id ?? null }
+        :tax, :service, :discount, :total, :pay_method, :paid, :status, :cashier, :shift)`,
+      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, total, pay_method, paid: paid_amount, status: isPending ? 'pending' : 'paid', cashier: req.user?.id ?? null, shift: openShift?.id ?? null }
     );
     const orderId = orderResult.insertId;
 
@@ -97,6 +103,8 @@ router.post('/', async (req, res, next) => {
         { o: orderId, p: p.id, q: it.qty, up: p.price, n: it.note || null }
       );
       orderItems.push({ product_id: p.id, name: p.name, qty: it.qty, unit_price: Number(p.price), note: it.note || null });
+
+      if (isPending) continue; // stok dipotong saat pesanan dilunaskan (finalize.js)
 
       // Kurangi SEMUA bahan baku terhubung ke menu ini (bisa lebih dari satu —
       // mis. kerupuk + cabai + bumbu). Bahan pertama tersimpan juga di kolom
@@ -122,11 +130,13 @@ router.post('/', async (req, res, next) => {
       }
     }
 
-    // Catat pemasukan otomatis
-    await conn.query(
-      `INSERT INTO transactions (type, category, amount, note, ref_order) VALUES ('income', 'penjualan', :total, :note, :ref)`,
-      { total, note: `Penjualan ${orderNo}`, ref: orderId }
-    );
+    // Catat pemasukan otomatis (pesanan pending: dicatat saat dilunaskan)
+    if (!isPending) {
+      await conn.query(
+        `INSERT INTO transactions (type, category, amount, note, ref_order) VALUES ('income', 'penjualan', :total, :note, :ref)`,
+        { total, note: `Penjualan ${orderNo}`, ref: orderId }
+      );
+    }
 
     await conn.commit();
 
@@ -143,7 +153,7 @@ router.post('/', async (req, res, next) => {
       total,
       pay_method,
       paid_amount,
-      status: 'paid',
+      status: isPending ? 'pending' : 'paid',
       store_name: settings.store_name,
       store_address: settings.store_address,
       store_phone: settings.store_phone,

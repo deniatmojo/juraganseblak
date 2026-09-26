@@ -108,6 +108,12 @@ CREATE TABLE IF NOT EXISTS orders (
   pay_method     ENUM('cash', 'qris', 'debit') NOT NULL DEFAULT 'cash',
   paid_amount    DECIMAL(14, 2) DEFAULT NULL,
   status         ENUM('pending', 'paid', 'canceled') NOT NULL DEFAULT 'pending',
+  payment_provider VARCHAR(30)  DEFAULT NULL,           -- tripay | duitku | midtrans | manual
+  payment_ref      VARCHAR(100) DEFAULT NULL,           -- reference/id transaksi dari gateway
+  payment_url      VARCHAR(500) DEFAULT NULL,           -- halaman checkout gateway
+  payment_qr       TEXT         DEFAULT NULL,           -- qr_string QRIS dinamis dari gateway
+  paid_at          TIMESTAMP    NULL DEFAULT NULL,
+  payment_confirmed_by INT UNSIGNED DEFAULT NULL,     -- user id bila dilunasi manual
   cashier_id     INT UNSIGNED DEFAULT NULL,
   shift_id       BIGINT UNSIGNED DEFAULT NULL,
   void_reason    VARCHAR(255) DEFAULT NULL,

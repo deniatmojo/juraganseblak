@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireRole } from '../auth.js';
+import { todayWib, wibMinutes } from '../wib.js';
 
 const router = Router();
 
 function today() {
-  // Tanggal lokal (bukan toISOString — itu UTC, melenceng setelah tengah malam
-  // di zona UTC+7).
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // Tanggal WIB eksplisit — mesin server produksi berjalan UTC, memakai
+  // getFullYear() lokal membuat absen antara 00:00–07:00 WIB mundur sehari.
+  return todayWib();
 }
 
 // Auto clock-out: tutup otomatis absensi yang sudah melewati durasi kerja.
@@ -116,7 +116,7 @@ async function lateStatus(empId, now) {
   );
   const limit = emp?.shift_start ?? '10:00:00';
   const [lh, lm] = String(limit).split(':').map(Number);
-  const minutes = now.getHours() * 60 + now.getMinutes();
+  const minutes = wibMinutes(now);
   return minutes > lh * 60 + lm ? 'terlambat' : 'hadir';
 }
 

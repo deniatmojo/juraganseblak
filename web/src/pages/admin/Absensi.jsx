@@ -180,9 +180,10 @@ function RangeFilter({ preset, onPreset, from, to, onFrom, onTo }) {
 
 /* ============ REKAP ABSENSI — filter rentang tanggal, pribadi vs semua ============ */
 function RekapAbsensi({ personal }) {
-  const [preset, setPreset] = useState('month')
-  const [from, setFrom] = useState(rangePreset('month').from)
-  const [to, setTo] = useState(rangePreset('month').to)
+  // Pribadi default "Hari Ini" — karyawan langsung melihat absensinya hari ini.
+  const [preset, setPreset] = useState(personal ? 'today' : 'month')
+  const [from, setFrom] = useState(rangePreset(personal ? 'today' : 'month').from)
+  const [to, setTo] = useState(rangePreset(personal ? 'today' : 'month').to)
   const [data, setData] = useState({ employees: [], records: [] })
   const [error, setError] = useState('')
 

@@ -18,14 +18,16 @@ import attendanceRouter from './routes/attendance.js';
 import payrollRouter from './routes/payroll.js';
 import financeRouter from './routes/finance.js';
 import uploadRouter from './routes/upload.js';
+import paymentsRouter from './routes/payments.js';
 import { autoClockOut } from './routes/attendance.js';
 import { requireAuth, requireRole } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+// rawBody disimpan untuk verifikasi signature webhook gateway (mis. Tripay HMAC).
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }));
 app.use(cors());
-app.use(express.json());
 // Folder upload multer ada di server/uploads (lihat routes/upload.js) — path
 // static harus menunjuk ke folder yang sama agar file hasil upload bisa diakses.
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
@@ -33,6 +35,9 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // Semua endpoint butuh login, kecuali health & login itu sendiri.
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRouter);
+// Pembayaran: webhook gateway harus publik (tanpa login), endpoint lain
+// memakai requireAuth sendiri di dalam routernya.
+app.use('/api/payments', paymentsRouter);
 app.use('/api', requireAuth);
 
 // Guard role — wajib dipasang SEBELUM router agar dieksekusi duluan.

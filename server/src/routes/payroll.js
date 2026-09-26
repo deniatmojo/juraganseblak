@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import { yearWib } from '../wib.js';
 
 const router = Router();
 
@@ -80,7 +81,7 @@ router.get('/', async (req, res, next) => {
 // month opsional: tanpa month = rekap setahun penuh.
 router.get('/history', async (req, res, next) => {
   try {
-    const year = Number(req.query.year) || new Date().getFullYear();
+    const year = Number(req.query.year) || yearWib();
     const month = req.query.month ? Number(req.query.month) : null;
     const employeeId = req.query.employee_id ? Number(req.query.employee_id) : null;
     if (month && (month < 1 || month > 12)) return res.status(400).json({ error: 'Month 1-12' });

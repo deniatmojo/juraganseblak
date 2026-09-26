@@ -11,3 +11,7 @@ export const pool = mysql.createPool({
   namedPlaceholders: true,
   dateStrings: true,
 });
+// Kunci semua NOW()/CURDATE()/DATE_FORMAT MySQL ke WIB (+07:00) — mesin server
+// produksi berjalan UTC, tanpa ini absen/nomor order antara 00:00–07:00 WIB
+// tercatat mundur sehari.
+pool.on('connection', (conn) => conn.query("SET time_zone = '+07:00'"));
