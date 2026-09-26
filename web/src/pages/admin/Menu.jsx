@@ -330,12 +330,12 @@ export default function Menu() {
                 <div className="space-y-2">
                   {form.stock_links.map((l, i) => (
                     <div key={i} className="flex items-center gap-2.5">
-                      <select value={l.stock_item_id} onChange={(e) => editLink(i, 'stock_item_id', e.target.value)} className={`${inputCls} flex-1 min-w-0`}>
+                      <select value={l.stock_item_id} onChange={(e) => editLink(i, 'stock_item_id', e.target.value)} className={`flex-1 min-w-0 bg-white border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili`}>
                         <option value="">— pilih bahan —</option>
                         {stockItems.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit}) — sisa {s.qty}</option>)}
                       </select>
                       <span className="text-xs font-bold text-char/40 shrink-0">per porsi</span>
-                      <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 porsi" value={l.qty_per_unit} onChange={(e) => editLink(i, 'qty_per_unit', e.target.value)} className={`${inputCls} w-24 text-center shrink-0`} />
+                      <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 porsi" value={l.qty_per_unit} onChange={(e) => editLink(i, 'qty_per_unit', e.target.value)} className={`w-24 text-center bg-white border border-black/15 rounded-xl px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili shrink-0`} />
                       <button onClick={() => removeLink(i)} aria-label="Hapus bahan" className="text-chili hover:text-chili-dark font-bold px-1.5 text-lg leading-none shrink-0">×</button>
                     </div>
                   ))}
