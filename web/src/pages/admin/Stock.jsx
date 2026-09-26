@@ -93,20 +93,21 @@ export default function Stock() {
           <button onClick={openAdd} className="text-xs font-bold text-white bg-chili hover:bg-chili-dark px-5 py-2.5 rounded-full">+ Bahan Baru</button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[820px]">
+          <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="text-left text-char/40 text-xs uppercase border-b border-black/5">
                 <th className="px-6 py-3 font-bold">Bahan Baku</th>
                 <th className="px-6 py-3 font-bold">Kategori</th>
                 <th className="px-6 py-3 font-bold">Sisa Stok</th>
                 <th className="px-6 py-3 font-bold">Batas Minimum</th>
+                <th className="px-6 py-3 font-bold">Harga Rata-rata</th>
                 <th className="px-6 py-3 font-bold">Status</th>
                 <th className="px-6 py-3 font-bold text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
               {stockItems.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-char/40">Belum ada bahan.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-char/40">Belum ada bahan.</td></tr>
               )}
               {stockItems.map((item) => {
                 const pct = Math.min(100, Math.round((item.qty / Math.max(item.min_qty * 2, 0.001)) * 100))
@@ -123,6 +124,13 @@ export default function Stock() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-char/60">{item.min_qty} {item.unit}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {item.unit_cost > 0 ? (
+                        <span className="font-semibold">{formatRp(item.unit_cost)}<span className="text-char/40 font-normal">/{item.unit}</span></span>
+                      ) : (
+                        <span className="text-char/30">belum diatur</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       {item.is_low ? (
                         <span className="text-xs font-bold text-chili bg-red-50 px-2.5 py-1 rounded-full">Kritis</span>

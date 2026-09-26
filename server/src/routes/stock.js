@@ -26,12 +26,13 @@ const router = Router();
 router.get('/', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, name, category, unit, qty, min_qty, is_active, updated_at FROM stock_items WHERE is_active = 1 ORDER BY category, name'
+      'SELECT id, name, category, unit, qty, min_qty, unit_cost, is_active, updated_at FROM stock_items WHERE is_active = 1 ORDER BY category, name'
     );
     res.json(rows.map((r) => ({
       ...r,
       qty: Number(r.qty),
       min_qty: Number(r.min_qty),
+      unit_cost: Number(r.unit_cost),
       is_low: Number(r.qty) <= Number(r.min_qty),
     })));
   } catch (e) { next(e); }
@@ -76,8 +77,9 @@ router.patch('/:id', async (req, res, next) => {
 
 // POST /api/stock/:id/move — barang masuk (in) / keluar (out) / set absolut (adjust)
 // Untuk 'in': sertakan unit_cost (harga beli per unit) → transaksi belanja bahan
-// tercatat OTOMATIS di Keuangan (qty × unit_cost) dan harga beli terakhir
-// item diperbarui. 'Stok awal' tidak dianggap pembelian.
+// tercatat OTOMATIS di Keuangan (qty × unit_cost). Harga stok memakai
+// HARGA RATA-RATA BERGERAK: (stok sisa × harga lama + masuk × harga beli) ÷ total.
+// 'Stok awal' menetapkan harga langsung dan tidak dianggap pembelian.
 router.post('/:id/move', async (req, res, next) => {
   try {
     const { type, qty, note = null, unit_cost = 0 } = req.body;
@@ -110,10 +112,21 @@ router.post('/:id/move', async (req, res, next) => {
       else { delta = qtyNum - Number(item.qty); newQty = qtyNum; }
       if (newQty < 0) { await conn.rollback(); return res.status(400).json({ error: 'Stok tidak cukup' }); }
 
-      const effCost = type === 'in' && cost > 0 ? cost : Number(item.unit_cost);
-      const isPurchase = type === 'in' && cost > 0 && (note || '') !== 'Stok awal';
+      const oldCost = Number(item.unit_cost);
+      const isStokAwal = (note || '') === 'Stok awal';
+      const isPurchase = type === 'in' && cost > 0 && !isStokAwal;
 
-      await conn.query('UPDATE stock_items SET qty = :q, unit_cost = :c WHERE id = :id', { q: newQty, c: effCost, id: itemId });
+      // Harga rata-rata bergerak: hanya stok yang masih ada yang dicampur.
+      let avgCost = oldCost;
+      if (type === 'in' && cost > 0) {
+        if (isStokAwal) {
+          avgCost = cost; // stok awal menetapkan harga dasar
+        } else if (newQty > 0) {
+          avgCost = (Number(item.qty) * oldCost + qtyNum * cost) / newQty;
+        }
+      }
+
+      await conn.query('UPDATE stock_items SET qty = :q, unit_cost = :c WHERE id = :id', { q: newQty, c: avgCost, id: itemId });
       await conn.query(
         `INSERT INTO stock_movements (item_id, type, qty, unit_cost, note, created_by) VALUES (:item, :type, :qty, :cost, :note, :user)`,
         { item: itemId, type, qty: Math.abs(delta), cost: isPurchase ? cost : 0, note, user: req.user?.id ?? null }
@@ -131,7 +144,7 @@ router.post('/:id/move', async (req, res, next) => {
         );
       }
       await conn.commit();
-      res.json({ id: itemId, name: item.name, unit: item.unit, qty: newQty, unit_cost: effCost, purchase_recorded: isPurchase ? Math.round(qtyNum * cost) : 0 });
+      res.json({ id: itemId, name: item.name, unit: item.unit, qty: newQty, unit_cost: Math.round(avgCost * 100) / 100, purchase_recorded: isPurchase ? Math.round(qtyNum * cost) : 0 });
     } catch (e) {
       await conn.rollback().catch(() => {});
       throw e;
