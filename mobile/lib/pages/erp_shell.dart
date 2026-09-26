@@ -8,6 +8,7 @@ import 'pos_page.dart';
 import 'menu_page.dart';
 import 'absensi_page.dart';
 import 'stock_page.dart';
+import 'pembayaran_page.dart';
 import 'keuangan_page.dart';
 import 'karyawan_page.dart';
 import 'gaji_page.dart';
@@ -16,9 +17,9 @@ class NavEntry {
   final String title;
   final String subtitle;
   final IconData icon;
-  final bool ownerOnly;
+  final List<String> roles; // kosong = semua role (matriks AdminLayout.jsx web)
   final Widget page;
-  const NavEntry(this.title, this.subtitle, this.icon, this.ownerOnly, this.page);
+  const NavEntry(this.title, this.subtitle, this.icon, this.roles, this.page);
 }
 
 /// Kerangka ERP: sidebar drawer gelap + header putih dengan jam hidup,
@@ -42,29 +43,41 @@ class _ErpShellState extends State<ErpShell> {
   @override
   void initState() {
     super.initState();
-    entries = [
+    // Matriks menu = navItems di web/src/components/AdminLayout.jsx:
+    // owner semua; admin tanpa Keuangan/Karyawan/Gaji; kasir POS+Absensi;
+    // karyawan hanya Absensi.
+    final entriesAll = <NavEntry>[
       NavEntry('Dashboard', 'Ringkasan operasional hari ini', Icons.home_outlined,
-          true, DashboardPage()),
+          ['owner', 'admin'], DashboardPage()),
       NavEntry('Kasir / POS', 'Meja 07 · Dine-in', Icons.point_of_sale_outlined,
-          false, PosPage(user: widget.user)),
+          ['owner', 'admin', 'kasir'], PosPage(user: widget.user)),
       NavEntry('Menu', 'Kelola menu, harga, HPP & kategori',
-          Icons.restaurant_menu_outlined, true, MenuPage(user: widget.user)),
+          Icons.restaurant_menu_outlined, ['owner', 'admin'], MenuPage(user: widget.user)),
       NavEntry('Absensi', 'Kehadiran karyawan hari ini',
-          Icons.fact_check_outlined, false, AbsensiPage(user: widget.user)),
+          Icons.fact_check_outlined, [], AbsensiPage(user: widget.user)),
       NavEntry('Stock', 'Pantau ketersediaan bahan dapur',
-          Icons.inventory_2_outlined, true, StockPage(user: widget.user)),
+          Icons.inventory_2_outlined, ['owner', 'admin'], StockPage(user: widget.user)),
+      NavEntry('Pembayaran', 'QRIS & payment gateway', Icons.credit_card_outlined,
+          ['owner', 'admin'], PembayaranPage(user: widget.user)),
       NavEntry('Keuangan', 'Pemasukan & pengeluaran outlet',
-          Icons.account_balance_wallet_outlined, true, KeuanganPage(user: widget.user)),
+          Icons.account_balance_wallet_outlined, ['owner'], KeuanganPage(user: widget.user)),
       NavEntry('Karyawan', 'Kelola akun login & data karyawan',
-          Icons.people_alt_outlined, true, KaryawanPage(user: widget.user)),
+          Icons.people_alt_outlined, ['owner'], KaryawanPage(user: widget.user)),
       NavEntry('Gaji', 'Rekap gaji, kasbon, dan pembayaran',
-          Icons.payments_outlined, true, GajiPage(user: widget.user)),
-    ].where((e) => !e.ownerOnly || widget.user.isOwner).toList();
+          Icons.payments_outlined, ['owner'], GajiPage(user: widget.user)),
+    ];
+    entries = entriesAll
+        .where((e) => e.roles.isEmpty || e.roles.contains(widget.user.role))
+        .toList();
 
-    if (!widget.user.isOwner) {
-      // Kasir langsung dibuka di POS (ROLE_HOME web: /erp/pos).
-      index = entries.indexWhere((e) => e.title.contains('POS'));
-    }
+    // ROLE_HOME web: owner/admin → Dashboard, kasir → POS, karyawan → Absensi.
+    final home = switch (widget.user.role) {
+      'kasir' => 'Kasir / POS',
+      'karyawan' => 'Absensi',
+      _ => 'Dashboard',
+    };
+    index = entries.indexWhere((e) => e.title == home);
+    if (index < 0) index = 0;
     timer = Timer.periodic(const Duration(seconds: 1),
         (_) => setState(() => now = DateTime.now()));
   }
@@ -241,8 +254,7 @@ class _ErpShellState extends State<ErpShell> {
                             size: 13,
                             weight: FontWeight.w700,
                             color: AppColors.cream)),
-                    Text(
-                        widget.user.isOwner ? 'Super Admin' : 'Karyawan',
+                    Text(widget.user.roleLabel,
                         style: AppText.body(
                             size: 11,
                             color: AppColors.cream.withValues(alpha: 0.5))),

@@ -370,7 +370,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                       style:
                           AppText.body(size: 11, color: Colors.black45),
                     ),
-                    trailing: widget.user.isOwner
+                    trailing: widget.user.isAdmin
                         ? TextButton(
                             onPressed: () => _statusDialog(r),
                             child: Text('Ubah',

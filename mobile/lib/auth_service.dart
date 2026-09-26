@@ -10,7 +10,7 @@ class AppUser {
   final int id;
   final String name;
   final String email;
-  final String role; // 'owner' | 'karyawan' (kasir dipetakan ke sini)
+  final String role; // 'owner' | 'admin' | 'kasir' | 'karyawan' — sama dengan DB
 
   const AppUser({
     required this.id,
@@ -20,6 +20,15 @@ class AppUser {
   });
 
   bool get isOwner => role == 'owner';
+  bool get isAdmin => role == 'owner' || role == 'admin';
+
+  /// Label tampilan, sama dengan roleLabel AdminLayout.jsx web.
+  String get roleLabel => const {
+        'owner': 'Super Admin',
+        'admin': 'Admin',
+        'kasir': 'Karyawan Kasir',
+        'karyawan': 'Karyawan',
+      }[role] ?? role;
 }
 
 class AuthService extends ChangeNotifier {
@@ -53,13 +62,14 @@ class AuthService extends ChangeNotifier {
     });
     // Role DB ('owner'|'admin'|'kasir') dipetakan ke role UI, sama seperti web.
     final u = Map<String, dynamic>.from(data['user'] as Map);
-    final dbRole = u['role'] as String? ?? 'kasir';
+    // Role diteruskan apa adanya (owner/admin/kasir/karyawan) — matriks menu
+    // di erp_shell mengikuti web/src/auth.js isAllowed().
     api.token = data['token'] as String?;
     _user = AppUser(
       id: u['id'] is int ? u['id'] : int.tryParse('${u['id']}') ?? 0,
       name: u['name'] ?? '',
       email: u['email'] ?? email,
-      role: dbRole == 'kasir' ? 'karyawan' : 'owner',
+      role: u['role'] as String? ?? 'karyawan',
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('erp_user', jsonEncode({

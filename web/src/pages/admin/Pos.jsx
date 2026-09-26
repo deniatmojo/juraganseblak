@@ -26,6 +26,10 @@ export default function Pos() {
   const [menuItems, setMenuItems] = useState([])
   const [categories, setCategories] = useState([{ key: 'semua', label: 'Semua' }])
   const [rates, setRates] = useState({ tax_rate: 0.1, service_rate: 0.05 })
+  // Konfigurasi pembayaran dari settings: gateway aktif + gambar QRIS statis
+  const [paySettings, setPaySettings] = useState({ gateway: 'none', qrisImage: '', qrisMerchant: '' })
+  // Modal pembayaran QRIS: { type: 'static' } | { type: 'gateway', order, payment }
+  const [payModal, setPayModal] = useState(null)
 
   // Shift kasir
   const [shift, setShift] = useState(null)
@@ -65,6 +69,11 @@ export default function Pos() {
         setMenuItems(products.map((p) => ({ id: p.id, name: p.name, cat: p.category, price: p.price, img: p.image_url })))
         setCategories([{ key: 'semua', label: 'Semua' }, ...cats.map((c) => ({ key: c.key, label: c.label }))])
         setRates({ tax_rate: settings.tax_rate ?? 0.1, service_rate: settings.service_rate ?? 0.05 })
+        setPaySettings({
+          gateway: settings.payment_gateway || 'none',
+          qrisImage: settings.qris_static_image || '',
+          qrisMerchant: settings.qris_static_merchant || '',
+        })
       })
       .catch((e) => mounted && setError(`Gagal memuat data: ${e.message}`))
     return () => { mounted = false }
@@ -106,7 +115,24 @@ export default function Pos() {
   const grandTotal = subtotal + tax + service
   const totalQty = cart.reduce((sum, c) => sum + c.qty, 0)
 
-  const openReceipt = async () => {
+  const setReceiptFromOrder = (order) => {
+    setReceipt({
+      no: order.order_no,
+      date: new Date(order.created_at || Date.now()).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }),
+      items: cart,
+      subtotal: order.subtotal,
+      tax: order.tax_amount,
+      service: order.service_amount,
+      total: order.total,
+      method: payLabels[order.pay_method] || order.pay_method,
+      storeName: order.store_name,
+      storeAddress: order.store_address,
+      storePhone: order.store_phone,
+      footer: order.receipt_footer,
+    })
+  }
+
+  const createOrder = async () => {
     setError('')
     setSubmitting(true)
     try {
@@ -115,24 +141,76 @@ export default function Pos() {
         pay_method: selectedPay,
         channel: 'pos',
       })
-      setReceipt({
-        no: order.order_no,
-        date: new Date(order.created_at || Date.now()).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }),
-        items: cart,
-        subtotal: order.subtotal,
-        tax: order.tax_amount,
-        service: order.service_amount,
-        total: order.total,
-        method: payLabels[order.pay_method] || order.pay_method,
-        storeName: order.store_name,
-        storeAddress: order.store_address,
-        storePhone: order.store_phone,
-        footer: order.receipt_footer,
-      })
+      setReceiptFromOrder(order)
     } catch (e) {
       setError(e.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Checkout QRIS dinamis: buat pesanan 'pending', minta QR ke gateway,
+  // lalu polling status sampai webhook melunaskan pesanan.
+  const createGatewayOrder = async () => {
+    setError('')
+    setSubmitting(true)
+    try {
+      const order = await api.post('/orders', {
+        items: cart.map((c) => ({ product_id: c.id, qty: c.qty, note: c.note?.trim() || null })),
+        pay_method: 'qris',
+        channel: 'pos',
+        pending: true,
+      })
+      const payment = await api.post('/payments/create', { order_id: order.id })
+      setPayModal({ type: 'gateway', order, payment })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Titik masuk tombol Bayar — pilih alur sesuai metode & konfigurasi.
+  const startCheckout = () => {
+    if (selectedPay === 'qris' && (paySettings.gateway || 'none') === 'none') {
+      if (paySettings.qrisImage) {
+        setPayModal({ type: 'static' })
+        return
+      }
+    }
+    if (selectedPay === 'qris' && paySettings.gateway && paySettings.gateway !== 'none') {
+      createGatewayOrder()
+      return
+    }
+    createOrder()
+  }
+
+  // Polling status pesanan gateway tiap 3 detik selama modal QR terbuka.
+  useEffect(() => {
+    if (payModal?.type !== 'gateway') return
+    let alive = true
+    const timer = setInterval(async () => {
+      try {
+        const o = await api.get(`/payments/status/${payModal.order.order_no}`)
+        if (alive && o.status === 'paid') {
+          clearInterval(timer)
+          setPayModal(null)
+          setReceiptFromOrder({ ...payModal.order, ...o })
+        }
+      } catch { /* polling lanjut bila request gagal sesaat */ }
+    }, 3000)
+    return () => { alive = false; clearInterval(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payModal?.type, payModal?.order?.order_no])
+
+  // Fallback: webhook belum masuk tapi kasir melihat dana sudah diterima.
+  const confirmGatewayManual = async () => {
+    try {
+      await api.post('/payments/confirm-manual', { order_id: payModal.order.id })
+      setPayModal(null)
+      setReceiptFromOrder({ ...payModal.order, status: 'paid' })
+    } catch (e) {
+      setError(e.message)
     }
   }
 
@@ -149,6 +227,14 @@ export default function Pos() {
       QRCode.toCanvas(qrCanvasRef.current, receipt.no, { width: 110, margin: 1 }, () => {})
     }
   }, [receipt])
+
+  // QR dinamis dari gateway (qr_string EMV QRIS) — digambar saat modal terbuka
+  const payQrCanvasRef = useRef(null)
+  useEffect(() => {
+    if (payModal?.type === 'gateway' && payModal.payment?.qr_string && payQrCanvasRef.current) {
+      QRCode.toCanvas(payQrCanvasRef.current, payModal.payment.qr_string, { width: 230, margin: 1 }, () => {})
+    }
+  }, [payModal])
 
   // Cetak dokumen terpilih (struk pelanggan / resep dapur). Efek ini berjalan
   // setelah React selesai merender area cetak, barulah window.print() dipanggil.
@@ -333,7 +419,7 @@ export default function Pos() {
           {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3 mb-3">{error}</p>}
 
           <button
-            onClick={openReceipt}
+            onClick={startCheckout}
             disabled={cart.length === 0 || submitting}
             className="w-full bg-chili hover:bg-chili-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-4 rounded-full transition-colors"
           >
@@ -341,6 +427,60 @@ export default function Pos() {
           </button>
         </div>
       </section>
+
+      {/* QRIS STATIS — tampilkan QR milik merchant, konfirmasi manual kasir */}
+      {payModal?.type === 'static' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+          <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setPayModal(null)}></div>
+          <div className="relative bg-white rounded-2xl w-full max-w-sm p-7 text-center">
+            <h2 className="font-display text-xl uppercase">Bayar via QRIS</h2>
+            <p className="text-char/50 text-sm mt-1">Minta pelanggan scan QR di bawah ini</p>
+            <div className="my-5 flex flex-col items-center">
+              {paySettings.qrisMerchant && <p className="text-xs font-bold text-char/60 mb-2">{paySettings.qrisMerchant}</p>}
+              <img src={paySettings.qrisImage} alt="QRIS statis" className="w-56 h-56 object-contain rounded-xl border border-black/10" />
+              <p className="font-display text-2xl text-chili mt-4">{formatRp(grandTotal)}</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setPayModal(null)} className="flex-1 border border-black/15 text-char font-bold py-3 rounded-full text-sm">Batal</button>
+              <button onClick={() => { setPayModal(null); createOrder() }} className="flex-1 bg-chili hover:bg-chili-dark text-white font-bold py-3 rounded-full text-sm">Sudah Diterima</button>
+            </div>
+            <p className="text-[11px] text-char/40 mt-4">Klik "Sudah Diterima" setelah pembayaran terkonfirmasi di HP Anda.</p>
+          </div>
+        </div>
+      )}
+
+      {/* QRIS DINAMIS GATEWAY — QR per transaksi, polling webhook, fallback manual */}
+      {payModal?.type === 'gateway' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+          <div className="absolute inset-0 bg-char/70 backdrop-blur-sm"></div>
+          <div className="relative bg-white rounded-2xl w-full max-w-sm p-7 text-center">
+            <h2 className="font-display text-xl uppercase">Bayar via QRIS</h2>
+            <p className="text-char/50 text-sm mt-1">
+              {payModal.order.order_no} &middot; menunggu pembayaran...
+            </p>
+            <div className="my-5 flex flex-col items-center">
+              {payModal.payment.qr_string && <canvas ref={payQrCanvasRef} className="rounded-xl border border-black/10"></canvas>}
+              {!payModal.payment.qr_string && payModal.payment.qr_url && (
+                <img src={payModal.payment.qr_url} alt="QR QRIS" className="w-56 h-56 object-contain rounded-xl border border-black/10" />
+              )}
+              {!payModal.payment.qr_string && !payModal.payment.qr_url && payModal.payment.checkout_url && (
+                <a href={payModal.payment.checkout_url} target="_blank" rel="noreferrer" className="text-chili font-bold text-sm underline">
+                  Buka halaman pembayaran gateway
+                </a>
+              )}
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse mt-4"></span>
+              <p className="font-display text-2xl text-chili mt-2">{formatRp(grandTotal)}</p>
+              <p className="text-[11px] text-char/40 mt-1">Struk muncul otomatis setelah pembayaran diterima.</p>
+            </div>
+            <button onClick={confirmGatewayManual} className="w-full border border-black/15 text-char font-bold py-3 rounded-full text-sm mb-2">
+              Konfirmasi Manual (dana sudah diterima)
+            </button>
+            <button onClick={() => setPayModal(null)} className="w-full border border-black/15 text-char/60 font-bold py-2.5 rounded-full text-xs">
+              Tutup — pesanan tersimpan, lunaskan lewat Riwayat bila belum terbayar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* SHIFT MODAL (mulai / tutup) */}
       {shiftModal && (

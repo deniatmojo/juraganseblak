@@ -9,6 +9,7 @@ const headerMeta = {
   '/erp/menu': { title: 'Manajemen Menu', subtitle: 'Kelola menu, harga, HPP & kategori' },
   '/erp/absensi': { title: 'Absensi', subtitle: 'Kehadiran karyawan hari ini' },
   '/erp/stock': { title: 'Stok Bahan Baku', subtitle: 'Pantau ketersediaan bahan dapur' },
+  '/erp/pembayaran': { title: 'Pembayaran', subtitle: 'QRIS statis & payment gateway' },
   '/erp/keuangan': { title: 'Keuangan', subtitle: 'Ringkasan kas & transaksi' },
   '/erp/keuangan/laba-rugi': { title: 'Laba Rugi', subtitle: 'Pendapatan, HPP, beban, dan laba bersih' },
   '/erp/keuangan/arus-kas': { title: 'Arus Kas', subtitle: 'Pergerakan kas operasional, investasi, pendanaan' },
@@ -49,6 +50,12 @@ const navItems = [
     label: 'Stock',
     roles: ['owner', 'admin'],
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  },
+  {
+    to: '/erp/pembayaran',
+    label: 'Pembayaran',
+    roles: ['owner', 'admin'],
+    icon: 'M3 10h18M3 14h3m3 0h3m3 0h3M3 6h18a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V7a1 1 0 011-1z',
   },
   {
     to: '/erp/keuangan',

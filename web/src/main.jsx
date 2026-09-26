@@ -11,6 +11,7 @@ import Pos from './pages/admin/Pos.jsx'
 import Menu from './pages/admin/Menu.jsx'
 import Absensi from './pages/admin/Absensi.jsx'
 import Stock from './pages/admin/Stock.jsx'
+import Pembayaran from './pages/admin/Pembayaran.jsx'
 import Keuangan from './pages/admin/Keuangan.jsx'
 import KeuanganLayout from './pages/admin/keuangan/KeuanganLayout.jsx'
 import LabaRugi from './pages/admin/keuangan/LabaRugi.jsx'
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="menu" element={<Menu />} />
           <Route path="absensi" element={<Absensi />} />
           <Route path="stock" element={<Stock />} />
+          <Route path="pembayaran" element={<Pembayaran />} />
           <Route path="keuangan" element={<KeuanganLayout />}>
             <Route index element={<Keuangan />} />
             <Route path="laba-rugi" element={<LabaRugi />} />

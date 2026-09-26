@@ -45,6 +45,13 @@ class _PosPageState extends State<PosPage> {
   Map<String, dynamic>? shift; // shift aktif dari /shifts/active
   bool submitting = false;
 
+  // Konfigurasi pembayaran dari settings (payment_gateway, QRIS statis).
+  String gateway = 'none';
+  String qrisImage = '';
+  String qrisMerchant = '';
+  // Modal QRIS aktif: {'type': 'static'} | {'type': 'gateway', ...}
+  Map<String, dynamic>? payModal;
+
   static const payMethods = {
     'cash': ('Cash', Icons.payments_outlined),
     'qris': ('QRIS', Icons.qr_code),
@@ -90,6 +97,9 @@ class _PosPageState extends State<PosPage> {
           taxRate = (num.tryParse('${settings['tax_rate']}') ?? 0.1).toDouble();
           serviceRate =
               (num.tryParse('${settings['service_rate']}') ?? 0.05).toDouble();
+          gateway = '${settings['payment_gateway'] ?? 'none'}';
+          qrisImage = '${settings['qris_static_image'] ?? ''}';
+          qrisMerchant = '${settings['qris_static_merchant'] ?? ''}';
           loading = false;
         });
       }
@@ -136,6 +146,91 @@ class _PosPageState extends State<PosPage> {
   double get service => subtotal * serviceRate;
   double get grandTotal => subtotal + tax + service;
 
+  /// Titik masuk tombol Bayar — pilih alur sesuai metode & konfigurasi,
+  /// padanan startCheckout() di Pos.jsx web.
+  void startCheckout() {
+    if (cart.isEmpty || submitting) return;
+    if (payMethod == 'qris' && gateway == 'none' && qrisImage.isNotEmpty) {
+      setState(() => payModal = {'type': 'static'});
+      return;
+    }
+    if (payMethod == 'qris' && gateway != 'none') {
+      createGatewayOrder();
+      return;
+    }
+    checkout();
+  }
+
+  /// Checkout QRIS dinamis: pesanan 'pending' → minta QR ke gateway →
+  /// polling status sampai webhook melunaskan (padanan Pos.jsx web).
+  Future<void> createGatewayOrder() async {
+    setState(() { submitting = true; error = null; });
+    try {
+      final order = await api.post('/orders', {
+        'items': cart
+            .map((c) => {
+                  'product_id': c.item.id,
+                  'qty': c.qty,
+                  'note': (c.note?.trim().isEmpty ?? true) ? null : c.note!.trim(),
+                })
+            .toList(),
+        'pay_method': 'qris',
+        'channel': 'pos',
+        'pending': true,
+      });
+      final o = Map<String, dynamic>.from(order as Map);
+      final payment = await api.post('/payments/create', {'order_id': o['id']});
+      if (!mounted) return;
+      setState(() {
+        payModal = {
+          'type': 'gateway',
+          'order': o,
+          'payment': Map<String, dynamic>.from(payment as Map),
+        };
+      });
+      _pollStatus(o);
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  void _pollStatus(Map<String, dynamic> order) {
+    final orderNo = '${order['order_no']}';
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted || payModal?['type'] != 'gateway') return false;
+      try {
+        final o = await api.get('/payments/status/$orderNo');
+        if (o is Map && '${o['status']}' == 'paid') {
+          if (!mounted) return false;
+          final merged = {...order, ...Map<String, dynamic>.from(o as Map)};
+          setState(() => payModal = null);
+          _showReceipt(merged);
+          return false;
+        }
+      } catch (_) {/* polling lanjut bila request gagal sesaat */}
+      return mounted && payModal?['type'] == 'gateway';
+    });
+  }
+
+  Future<void> _confirmManual() async {
+    final order = Map<String, dynamic>.from(payModal?['order'] as Map);
+    try {
+      await api.post('/payments/confirm-manual', {'order_id': order['id']});
+      if (!mounted) return;
+      setState(() => payModal = null);
+      _showReceipt({...order, 'status': 'paid'});
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
   Future<void> checkout() async {
     if (cart.isEmpty || submitting) return;
     setState(() {
@@ -156,20 +251,7 @@ class _PosPageState extends State<PosPage> {
       });
       final o = Map<String, dynamic>.from(order as Map);
       if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => _ReceiptDialog(
-          receipt: o,
-          cashier: widget.user.name,
-          lines: List.of(cart),
-          onClose: () {
-            Navigator.pop(context);
-            setState(() => cart.clear());
-            _loadShift();
-          },
-        ),
-      );
+      _showReceipt(o);
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));
@@ -218,7 +300,138 @@ class _PosPageState extends State<PosPage> {
             ]);
     }
 
-    return Padding(padding: const EdgeInsets.all(16), child: body);
+    return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Stack(children: [
+          body,
+          if (payModal != null) _payModalOverlay(),
+        ]));
+  }
+
+  void _showReceipt(Map<String, dynamic> o) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ReceiptDialog(
+        receipt: o,
+        cashier: widget.user.name,
+        lines: List.of(cart),
+        onClose: () {
+          Navigator.pop(context);
+          setState(() => cart.clear());
+          _loadShift();
+        },
+      ),
+    );
+  }
+
+  /// Overlay modal QRIS: statis (gambar dari settings) atau dinamis (gateway,
+  /// dengan polling + konfirmasi manual).
+  Widget _payModalOverlay() {
+    final isStatic = payModal!['type'] == 'static';
+    final payment = isStatic
+        ? null
+        : Map<String, dynamic>.from(payModal!['payment'] as Map);
+    final order = isStatic
+        ? null
+        : Map<String, dynamic>.from(payModal!['order'] as Map);
+    final origin = ApiClient.baseUrl.replaceAll(RegExp(r'/api$'), '');
+
+    return Positioned.fill(
+      child: Material(
+        color: AppColors.char.withValues(alpha: 0.7),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(isStatic ? 'Scan QRIS' : 'Scan QRIS Dinamis',
+                      style: AppText.display(size: 18)),
+                  const SizedBox(height: 6),
+                  Text(
+                    isStatic
+                        ? (qrisMerchant.isNotEmpty
+                            ? 'a.n $qrisMerchant · ${formatRp(grandTotal)}'
+                            : 'Total ${formatRp(grandTotal)}')
+                        : '${payment?['provider'] ?? ''} · ${formatRp(payment?['total'] ?? grandTotal)}',
+                    style: AppText.body(size: 12, color: Colors.black54),
+                  ),
+                  const SizedBox(height: 16),
+                  if (isStatic && qrisImage.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        qrisImage.startsWith('http')
+                            ? qrisImage
+                            : '$origin$qrisImage',
+                        width: 240,
+                        height: 240,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => SizedBox(
+                          width: 240,
+                          height: 120,
+                          child: Center(
+                              child: Text('Gambar QRIS gagal dimuat',
+                                  style: AppText.body(
+                                      size: 12, color: AppColors.chili))),
+                        ),
+                      ),
+                    )
+                  else if (!isStatic) ...[
+                    if ((payment?['qr_url'] ?? '') != null &&
+                        '${payment?['qr_url']}'.isNotEmpty)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network('${payment!['qr_url']}',
+                            width: 240, height: 240, fit: BoxFit.cover),
+                      )
+                    else
+                      Container(
+                        width: 240,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.black12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text('${payment?['qr_string'] ?? ''}',
+                            textAlign: TextAlign.center,
+                            style: AppText.body(size: 9, color: Colors.black54)),
+                      ),
+                    const SizedBox(height: 10),
+                    Text('Menunggu pembayaran… (dicek otomatis)',
+                        style: AppText.body(
+                            size: 11, color: Colors.black45)),
+                  ]
+                  else
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text('QRIS statis belum diunggah — atur di menu Pembayaran.',
+                          style: AppText.body(size: 12, color: AppColors.chili)),
+                    ),
+                  const SizedBox(height: 18),
+                  if (!isStatic)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: primaryButton('Sudah Diterima (Konfirmasi Manual)',
+                          color: AppColors.char, onPressed: _confirmManual),
+                    ),
+                  primaryButton('Tutup', color: Colors.black26, onPressed: () {
+                    setState(() => payModal = null);
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _menuSection(List<Product> menuList) => Column(
@@ -562,7 +775,7 @@ class _PosPageState extends State<PosPage> {
             ],
             const SizedBox(height: 14),
             primaryButton(submitting ? 'Menyimpan...' : 'Bayar & Cetak Resi',
-                onPressed: cart.isEmpty || submitting ? null : checkout),
+                onPressed: cart.isEmpty || submitting ? null : startCheckout),
           ],
         ),
       );
