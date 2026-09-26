@@ -163,6 +163,19 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- ---------------------------------------------------------------------
 -- Karyawan & absensi (halaman Absensi)
 -- ---------------------------------------------------------------------
+-- Cabang: titik lokasi absen (lat/lng) + radius, dikelola owner (Super Admin)
+CREATE TABLE IF NOT EXISTS branches (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL,
+  address    VARCHAR(255) DEFAULT NULL,
+  lat        DECIMAL(10, 7) NOT NULL,           -- lintang (dari Google Maps)
+  lng        DECIMAL(10, 7) NOT NULL,           -- bujur (dari Google Maps)
+  radius_m   INT UNSIGNED NOT NULL DEFAULT 100, -- radius absen maksimum (meter)
+  is_active  TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS employees (
   id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(100) NOT NULL,
@@ -173,8 +186,10 @@ CREATE TABLE IF NOT EXISTS employees (
   daily_rate DECIMAL(14, 2) NOT NULL DEFAULT 0,  -- tarif gaji harian
   is_active  TINYINT(1) NOT NULL DEFAULT 1,
   user_id    INT UNSIGNED DEFAULT NULL,           -- link akun login (opsional)
+  branch_id  INT UNSIGNED DEFAULT NULL,           -- penugasan cabang (lokasi absen GPS)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_emp_user FOREIGN KEY (user_id) REFERENCES users (id)
+  CONSTRAINT fk_emp_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_emp_branch FOREIGN KEY (branch_id) REFERENCES branches (id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS kasbon (
@@ -196,6 +211,9 @@ CREATE TABLE IF NOT EXISTS attendance (
   clock_out   DATETIME DEFAULT NULL,
   status      ENUM('hadir', 'terlambat', 'izin', 'sakit', 'alpa') NOT NULL DEFAULT 'hadir',
   note        VARCHAR(255) DEFAULT NULL,
+  clock_lat   DECIMAL(10, 7) DEFAULT NULL,  -- jejak GPS saat absen
+  clock_lng   DECIMAL(10, 7) DEFAULT NULL,
+  clock_distance_m INT UNSIGNED DEFAULT NULL, -- jarak ke titik cabang (meter)
   CONSTRAINT fk_att_emp FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE,
   CONSTRAINT uq_att_day UNIQUE (employee_id, work_date)
 ) ENGINE=InnoDB;

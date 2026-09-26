@@ -10,8 +10,7 @@ const EMPTY_FORM = {
   price: '',
   hpp: '',
   image_url: '',
-  stock_item_id: '',
-  stock_qty_per_unit: '1',
+  stock_links: [],
   is_available: true,
   is_active: true,
 }
@@ -85,8 +84,7 @@ export default function Menu() {
       price: p.price,
       hpp: p.hpp,
       image_url: p.image_url || '',
-      stock_item_id: p.stock_item_id || '',
-      stock_qty_per_unit: p.stock_qty_per_unit ?? 1,
+      stock_links: (p.stock_links || []).map((l) => ({ stock_item_id: String(l.stock_item_id), qty_per_unit: String(l.qty_per_unit) })),
       is_available: Boolean(p.is_available),
       is_active: Boolean(p.is_active),
     })
@@ -99,8 +97,9 @@ export default function Menu() {
         price: Number(form.price),
         hpp: Number(form.hpp || 0),
         image_url: form.image_url || null,
-        stock_item_id: form.stock_item_id ? Number(form.stock_item_id) : null,
-        stock_qty_per_unit: Number(form.stock_qty_per_unit || 1),
+        stock_links: form.stock_links
+          .filter((l) => l.stock_item_id && Number(l.qty_per_unit) > 0)
+          .map((l) => ({ stock_item_id: Number(l.stock_item_id), qty_per_unit: Number(l.qty_per_unit) })),
         is_available: form.is_available,
         is_active: form.is_active,
       }
@@ -112,6 +111,11 @@ export default function Menu() {
       setError(e.message)
     }
   }
+
+  const addLink = () => setForm((f) => ({ ...f, stock_links: [...f.stock_links, { stock_item_id: '', qty_per_unit: '1' }] }))
+  const editLink = (i, field, value) =>
+    setForm((f) => ({ ...f, stock_links: f.stock_links.map((l, j) => (j === i ? { ...l, [field]: value } : l)) }))
+  const removeLink = (i) => setForm((f) => ({ ...f, stock_links: f.stock_links.filter((_, j) => j !== i) }))
 
   const toggleAvailable = async (p) => {
     try {
@@ -248,7 +252,9 @@ export default function Menu() {
                   <td className="px-6 py-4 font-semibold">{formatRp(p.price)}</td>
                   <td className="px-6 py-4 text-char/60">{p.hpp ? formatRp(p.hpp) : '-'}</td>
                   <td className="px-6 py-4 text-char/60">
-                    {p.stock_item_name ? `${p.stock_item_name} (${p.stock_qty_per_unit})` : <span className="text-char/30">tidak terhubung</span>}
+                    {(p.stock_links?.length > 0)
+                      ? p.stock_links.map((l) => `${l.stock_item_name} (${l.qty_per_unit})`).join(', ')
+                      : <span className="text-char/30">tidak terhubung</span>}
                   </td>
                   <td className="px-6 py-4 space-x-1.5 whitespace-nowrap">
                     {!p.is_active ? (
@@ -320,15 +326,21 @@ export default function Menu() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold mb-1.5">Bahan Stok Terhubung <span className="font-normal text-char/40">(opsional)</span></label>
-                <div className="grid grid-cols-3 gap-3">
-                  <select value={form.stock_item_id} onChange={(e) => setForm({ ...form, stock_item_id: e.target.value })} className={`${inputCls} col-span-2`}>
-                    <option value="">— tidak terhubung —</option>
-                    {stockItems.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
-                  </select>
-                  <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 unit" value={form.stock_qty_per_unit} onChange={(e) => setForm({ ...form, stock_qty_per_unit: e.target.value })} className={inputCls} />
+                <label className="block text-sm font-bold mb-1.5">Bahan Stok Terhubung <span className="font-normal text-char/40">(bisa lebih dari satu)</span></label>
+                <div className="space-y-2">
+                  {form.stock_links.map((l, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <select value={l.stock_item_id} onChange={(e) => editLink(i, 'stock_item_id', e.target.value)} className={`${inputCls} flex-1`}>
+                        <option value="">— pilih bahan —</option>
+                        {stockItems.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+                      </select>
+                      <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 porsi" value={l.qty_per_unit} onChange={(e) => editLink(i, 'qty_per_unit', e.target.value)} className={`${inputCls} w-24 text-center`} />
+                      <button onClick={() => removeLink(i)} aria-label="Hapus bahan" className="text-chili hover:text-chili-dark font-bold px-1.5 text-lg leading-none">×</button>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-char/40 mt-1">Kolom kanan = jumlah bahan terpakai per 1 porsi (mis. 0.15 kg beras).</p>
+                <button onClick={addLink} className="mt-2 text-xs font-bold text-chili hover:underline">+ Tambah Bahan</button>
+                <p className="text-xs text-char/40 mt-1">Angka di kanan = takaran terpakai per 1 porsi (mis. 0.15 kg beras). Stok semua bahan berkurang otomatis saat POS menjual menu ini, dan nilai persediaannya masuk ke HPP Laba Rugi.</p>
               </div>
               <div className="flex gap-5">
                 <label className="flex items-center gap-2 text-sm font-semibold">

@@ -13,6 +13,7 @@ import shiftsRouter from './routes/shifts.js';
 import transactionsRouter from './routes/transactions.js';
 import usersRouter from './routes/users.js';
 import employeesRouter from './routes/employees.js';
+import branchesRouter from './routes/branches.js';
 import attendanceRouter from './routes/attendance.js';
 import payrollRouter from './routes/payroll.js';
 import financeRouter from './routes/finance.js';
@@ -50,6 +51,8 @@ app.use('/api/orders', (req, res, next) => (req.method === 'POST' ? next() : adm
 // khusus Super Admin (owner). Admin tidak boleh menyentuh menu Gaji/Karyawan.
 app.use('/api/users', requireRole('owner'));
 app.use('/api/employees', requireRole('owner'));
+// Kelola titik lokasi cabang absen: khusus Super Admin (owner).
+app.use('/api/branches', requireRole('owner'));
 app.use('/api/attendance', (req, res, next) => (req.method === 'PATCH' ? adminOnly(req, res, next) : next()));
 app.use('/api/payroll', requireRole('owner'));
 // Laporan keuangan (laba rugi, arus kas, buku besar, jurnal): owner only.
@@ -70,6 +73,7 @@ app.use('/api/shifts', shiftsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/employees', employeesRouter);
+app.use('/api/branches', branchesRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/finance', financeRouter);

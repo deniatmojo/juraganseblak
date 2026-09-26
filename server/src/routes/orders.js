@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import { linksForProducts } from './products.js';
 import { requireRole } from '../auth.js';
 
 const router = Router();
@@ -56,6 +57,8 @@ router.post('/', async (req, res, next) => {
       [ids]
     );
     const byId = Object.fromEntries(products.map((p) => [p.id, p]));
+    // Relasi menu↔bahan (multi-bahan per menu) untuk pemotongan stok.
+    const productLinks = await linksForProducts(products.map((p) => p.id));
     for (const it of items) {
       if (!byId[Number(it.product_id)]) {
         await conn.rollback();
@@ -95,22 +98,26 @@ router.post('/', async (req, res, next) => {
       );
       orderItems.push({ product_id: p.id, name: p.name, qty: it.qty, unit_price: Number(p.price), note: it.note || null });
 
-      // Kurangi bahan baku: pakai mapping stock_item_id bila diatur,
-      // fallback ke bahan dengan nama sama. Qty mengikuti stock_qty_per_unit.
-      const mappedId = p.stock_item_id ?? null;
-      let stockId = mappedId;
-      if (!stockId) {
+      // Kurangi SEMUA bahan baku terhubung ke menu ini (bisa lebih dari satu —
+      // mis. kerupuk + cabai + bumbu). Bahan pertama tersimpan juga di kolom
+      // lama products.stock_item_id; fallback ke bahan bernama sama bila menu
+      // belum punya link sama sekali.
+      let links = productLinks.get(p.id) || [];
+      if (!links.length) {
         const [byName] = await conn.query(
           'SELECT id FROM stock_items WHERE name = :name AND is_active = 1 LIMIT 1', { name: p.name }
         );
-        stockId = byName.length ? byName[0].id : null;
+        if (byName.length) {
+          links = [{ stock_item_id: byName[0].id, qty_per_unit: Number(p.stock_qty_per_unit || 1) }];
+        }
       }
-      if (stockId) {
-        const used = Number(p.stock_qty_per_unit || 1) * it.qty;
-        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: stockId });
+      for (const l of links) {
+        const used = Number(l.qty_per_unit) * it.qty;
+        if (!(used > 0)) continue;
+        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: l.stock_item_id });
         await conn.query(
           `INSERT INTO stock_movements (item_id, type, qty, note, created_by) VALUES (:item, 'out', :used, :note, :user)`,
-          { item: stockId, used, note: `Penjualan ${orderNo}`, user: req.user?.id ?? null }
+          { item: l.stock_item_id, used, note: `Penjualan ${orderNo}`, user: req.user?.id ?? null }
         );
       }
     }

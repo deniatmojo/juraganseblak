@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { api } from '../../api'
+import CabangManager from './CabangManager'
 
 const fmtTime = (dt) => (dt ? new Date(dt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '—')
 
@@ -44,6 +45,18 @@ const statusCls = {
   alpa: 'text-chili bg-red-50',
 }
 const statusLabel = { hadir: 'Hadir', terlambat: 'Terlambat', izin: 'Izin', sakit: 'Sakit', alpa: 'Tanpa Keterangan' }
+
+// Ambil koordinat perangkat via geolocation browser (absen harus dalam radius cabang).
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Browser tidak mendukung geolocation — absen dari aplikasi mobile.'))
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => reject(new Error('Lokasi tidak bisa diakses — izinkan akses lokasi di browser lalu coba lagi.')),
+      { enableHighAccuracy: true, timeout: 12_000 }
+    )
+  })
+}
 
 const inputCls = 'w-full bg-white border border-black/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili'
 
@@ -282,6 +295,7 @@ export default function Absensi() {
   const [empTo, setEmpTo] = useState(iso(new Date()))
   const [empRecap, setEmpRecap] = useState([])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [statusForm, setStatusForm] = useState(null) // { employee_id, name, status, note }
   const [schedule, setSchedule] = useState([])       // setting jadwal (owner)
@@ -324,7 +338,9 @@ export default function Absensi() {
     setBusy(true)
     setError('')
     try {
-      await api.post(`/attendance/${kind}`)
+      const pos = await getPosition()
+      const r = await api.post(`/attendance/${kind}`, { lat: pos.lat, lng: pos.lng })
+      if (r?.distance_m != null) setNotice(`Tercatat — ${r.distance_m} m dari ${r.branch_name || 'cabang'}.`)
       refreshToday()
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
@@ -388,6 +404,7 @@ export default function Absensi() {
   return (
     <main className="flex-1 p-5 md:p-8 space-y-7">
       {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3">{error}</p>}
+      {notice && <p className="text-xs font-bold text-green-700 bg-green-50 rounded-xl px-4 py-3">{notice}</p>}
 
       {/* CLOCK IN/OUT CARD */}
       <div className="bg-char rounded-2xl p-7 md:p-8 grid md:grid-cols-[1fr_auto] gap-6 items-center">
@@ -434,6 +451,9 @@ export default function Absensi() {
               </div>
             ))}
           </div>
+
+          {/* LOKASI ABSEN PER CABANG — Super Admin only */}
+          {isOwner && <CabangManager />}
 
           {/* SETTING JADWAL KERJA — Super Admin only */}
           {isOwner && (

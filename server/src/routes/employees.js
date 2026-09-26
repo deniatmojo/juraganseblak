@@ -4,11 +4,12 @@ import { pool } from '../db.js';
 const router = Router();
 
 const SELECT_EMP = `
-  SELECT e.id, e.name, e.role, e.phone, e.daily_rate, e.is_active, e.user_id,
+  SELECT e.id, e.name, e.role, e.phone, e.daily_rate, e.is_active, e.user_id, e.branch_id,
+         b.name AS branch_name,
          DATE_FORMAT(e.shift_start, '%H:%i') AS shift_start, e.work_hours,
          u.email AS account_email, u.role AS account_role,
          COALESCE((SELECT SUM(k.amount) FROM kasbon k WHERE k.employee_id = e.id AND k.is_settled = 0), 0) AS kasbon_open
-  FROM employees e LEFT JOIN users u ON u.id = e.user_id`;
+  FROM employees e LEFT JOIN users u ON u.id = e.user_id LEFT JOIN branches b ON b.id = e.branch_id`;
 
 // Validasi field jadwal absensi (setting owner di halaman Absensi).
 function scheduleParams(body, params) {
@@ -57,12 +58,12 @@ async function assertUserFree(user_id, exceptEmployeeId = null) {
 // POST /api/employees — { name, role, phone?, daily_rate?, user_id? }
 router.post('/', async (req, res, next) => {
   try {
-    const { name, role = '', phone = null, daily_rate = 0, user_id = null } = req.body || {};
+    const { name, role = '', phone = null, daily_rate = 0, user_id = null, branch_id = null } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Nama karyawan wajib diisi' });
     await assertUserFree(user_id);
     const [result] = await pool.query(
-      'INSERT INTO employees (name, role, phone, daily_rate, user_id) VALUES (:name, :role, :phone, :rate, :uid)',
-      { name, role, phone, rate: daily_rate, uid: user_id }
+      'INSERT INTO employees (name, role, phone, daily_rate, user_id, branch_id) VALUES (:name, :role, :phone, :rate, :uid, :bid)',
+      { name, role, phone, rate: daily_rate, uid: user_id, bid: branch_id }
     );
     res.status(201).json({ id: result.insertId, name, role, daily_rate: Number(daily_rate) });
   } catch (e) {
@@ -74,10 +75,18 @@ router.post('/', async (req, res, next) => {
 // PATCH /api/employees/:id
 router.patch('/:id', async (req, res, next) => {
   try {
-    const allowed = ['name', 'role', 'phone', 'daily_rate', 'user_id', 'is_active'];
+    const allowed = ['name', 'role', 'phone', 'daily_rate', 'user_id', 'branch_id', 'is_active'];
     const sets = allowed.filter((f) => req.body[f] !== undefined);
     const id = Number(req.params.id);
     if (req.body.user_id !== undefined) await assertUserFree(req.body.user_id, id);
+    if (req.body.branch_id !== undefined && req.body.branch_id !== null) {
+      const [[br]] = await pool.query('SELECT id FROM branches WHERE id = :id', { id: Number(req.body.branch_id) });
+      if (!br) {
+        const err = new Error('Cabang tidak ditemukan');
+        err.status = 400;
+        throw err;
+      }
+    }
     const params = { id };
     for (const f of sets) params[f] = req.body[f];
     scheduleParams(req.body, params);

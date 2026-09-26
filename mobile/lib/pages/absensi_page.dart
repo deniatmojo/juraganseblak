@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../api_client.dart';
 import '../auth_service.dart';
 import '../theme.dart';
@@ -54,12 +55,51 @@ class _AbsensiPageState extends State<AbsensiPage> {
     return rows.where((r) => r['user_id'] == uid).firstOrNull;
   }
 
+  // Ambil posisi GPS perangkat (absen hanya sah dalam radius titik cabang).
+  // Melempar Exception berisi pesan ramah user bila izin/servis lokasi mati.
+  Future<Position> _position() async {
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied) {
+      throw Exception('Izin lokasi ditolak — izinkan akses lokasi untuk absen.');
+    }
+    if (perm == LocationPermission.deniedForever) {
+      throw Exception(
+          'Akses lokasi diblok permanen. Buka pengaturan aplikasi > Izin > Lokasi.');
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw Exception('Layanan lokasi (GPS) sedang mati — nyalakan dulu.');
+    }
+    return Geolocator.getCurrentPosition(
+      locationSettings:
+          const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
+    );
+  }
+
   Future<void> _clock(bool isIn) async {
     if (busy) return;
     setState(() { busy = true; error = null; });
     try {
-      await api.post('/attendance/${isIn ? 'clock-in' : 'clock-out'}', {});
+      final pos = await _position();
+      final res = await api.post('/attendance/${isIn ? 'clock-in' : 'clock-out'}', {
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+      });
+      final dist = res is Map ? res['distance_m'] : null;
+      final branch = res is Map ? res['branch_name'] : null;
       await _load();
+      if (dist is num && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.char,
+          content: Text(
+            'Tercatat — ${dist.round()} m dari ${branch ?? 'cabang'}.',
+            style: AppText.body(size: 12, weight: FontWeight.w600, color: Colors.white),
+          ),
+        ));
+      }
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));

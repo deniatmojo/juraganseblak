@@ -37,9 +37,10 @@ router.get('/', async (req, res, next) => {
     const date = req.query.date || today();
     const isBoss = ['owner', 'admin'].includes(req.user.role);
     const [rows] = await pool.query(
-      `SELECT e.id AS employee_id, e.name, e.role AS posisi, e.user_id,
+      `SELECT e.id AS employee_id, e.name, e.role AS posisi, e.user_id, e.branch_id,
+              b.name AS branch_name,
               DATE_FORMAT(e.shift_start, '%H:%i') AS shift_start, e.work_hours,
-              a.clock_in, a.clock_out, a.status, a.note,
+              a.clock_in, a.clock_out, a.status, a.note, a.clock_distance_m,
               CASE
                 WHEN a.clock_in IS NOT NULL
                   THEN DATE_FORMAT(DATE_ADD(a.clock_in, INTERVAL e.work_hours HOUR), '%H:%i')
@@ -49,6 +50,7 @@ router.get('/', async (req, res, next) => {
               END AS est_clock_out
        FROM employees e
        LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = :date
+       LEFT JOIN branches b ON b.id = e.branch_id
        WHERE e.is_active = 1 ${isBoss ? '' : 'AND e.user_id = :uid'}
        ORDER BY e.name`,
       { date, uid: req.user.id }
@@ -56,6 +58,44 @@ router.get('/', async (req, res, next) => {
     res.json(rows.map((r) => ({ ...r, work_hours: Number(r.work_hours) })));
   } catch (e) { next(e); }
 });
+
+// Jarak haversine dua titik koordinat, dalam meter.
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6_371_000;
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
+}
+
+// Validasi lokasi absen terhadap cabang yang ditugaskan ke karyawan.
+// Mengembalikan { lat, lng, distance, branchName } untuk dicatat sebagai jejak,
+// atau melempar error ber-status (403 belum ditugaskan, 422 di luar radius).
+async function checkLocation(empId, req) {
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw Object.assign(new Error('Lokasi GPS tidak terbaca. Nyalakan lokasi lalu coba lagi.'), { status: 400 });
+  }
+  const [[row]] = await pool.query(
+    `SELECT e.branch_id, b.name AS branch_name, b.lat AS b_lat, b.lng AS b_lng, b.radius_m
+     FROM employees e LEFT JOIN branches b ON b.id = e.branch_id
+     WHERE e.id = :id`,
+    { id: empId }
+  );
+  if (!row?.branch_id) {
+    throw Object.assign(new Error('Anda belum ditugaskan ke cabang. Hubungi Super Admin untuk atur lokasi absen.'), { status: 403 });
+  }
+  const distance = distanceMeters(lat, lng, Number(row.b_lat), Number(row.b_lng));
+  if (distance > row.radius_m) {
+    throw Object.assign(
+      new Error(`Lokasi Anda ${distance} m dari cabang ${row.branch_name} — maksimum ${row.radius_m} m.`),
+      { status: 422 }
+    );
+  }
+  return { lat, lng, distance, branchName: row.branch_name };
+}
 
 // Cari employee milik user login (atau pakai employee_id eksplisit oleh admin)
 async function resolveEmployee(req) {
@@ -139,6 +179,14 @@ router.post('/clock-in', async (req, res, next) => {
     const empId = await resolveEmployee(req);
     if (!empId) return res.status(400).json({ error: 'Akun Anda belum terhubung ke data karyawan. Hubungi admin.' });
 
+    let loc;
+    try {
+      loc = await checkLocation(empId, req);
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+
     const date = today();
     const now = new Date();
     const status = await lateStatus(empId, now);
@@ -150,14 +198,17 @@ router.post('/clock-in', async (req, res, next) => {
 
     if (existing) {
       // Sudah ada baris (mis. izin yang diset admin) — isi jam masuk saja
-      await pool.query('UPDATE attendance SET clock_in = NOW(), status = :s WHERE id = :id', { s: status, id: existing.id });
+      await pool.query(
+        'UPDATE attendance SET clock_in = NOW(), status = :s, clock_lat = :lat, clock_lng = :lng, clock_distance_m = :dist WHERE id = :id',
+        { s: status, lat: loc.lat, lng: loc.lng, dist: loc.distance, id: existing.id }
+      );
     } else {
       await pool.query(
-        'INSERT INTO attendance (employee_id, work_date, clock_in, status) VALUES (:e, :d, NOW(), :s)',
-        { e: empId, d: date, s: status }
+        'INSERT INTO attendance (employee_id, work_date, clock_in, status, clock_lat, clock_lng, clock_distance_m) VALUES (:e, :d, NOW(), :s, :lat, :lng, :dist)',
+        { e: empId, d: date, s: status, lat: loc.lat, lng: loc.lng, dist: loc.distance }
       );
     }
-    res.status(201).json({ ok: true, clock_in: now.toISOString(), status });
+    res.status(201).json({ ok: true, clock_in: now.toISOString(), status, distance_m: loc.distance, branch_name: loc.branchName });
   } catch (e) { next(e); }
 });
 
@@ -167,6 +218,14 @@ router.post('/clock-out', async (req, res, next) => {
     const empId = await resolveEmployee(req);
     if (!empId) return res.status(400).json({ error: 'Akun Anda belum terhubung ke data karyawan. Hubungi admin.' });
 
+    let loc;
+    try {
+      loc = await checkLocation(empId, req);
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+
     const date = today();
     const [[att]] = await pool.query(
       'SELECT id, clock_in, clock_out FROM attendance WHERE employee_id = :e AND work_date = :d', { e: empId, d: date }
@@ -174,8 +233,11 @@ router.post('/clock-out', async (req, res, next) => {
     if (!att?.clock_in) return res.status(400).json({ error: 'Belum absen masuk hari ini' });
     if (att.clock_out) return res.status(409).json({ error: 'Sudah absen keluar hari ini' });
 
-    await pool.query('UPDATE attendance SET clock_out = NOW() WHERE id = :id', { id: att.id });
-    res.json({ ok: true, clock_out: new Date().toISOString() });
+    await pool.query(
+      'UPDATE attendance SET clock_out = NOW(), clock_lat = :lat, clock_lng = :lng, clock_distance_m = :dist WHERE id = :id',
+      { lat: loc.lat, lng: loc.lng, dist: loc.distance, id: att.id }
+    );
+    res.json({ ok: true, clock_out: new Date().toISOString(), distance_m: loc.distance, branch_name: loc.branchName });
   } catch (e) { next(e); }
 });
 

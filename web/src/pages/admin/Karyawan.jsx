@@ -7,18 +7,19 @@ const inputCls = 'w-full bg-white text-char border border-black/15 rounded-xl px
 export default function Karyawan() {
   const [users, setUsers] = useState([])
   const [employees, setEmployees] = useState([])
+  const [branches, setBranches] = useState([])
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   // Form akun login
   const [accForm, setAccForm] = useState({ name: '', email: '', password: '', role: 'kasir' })
   // Form karyawan
-  const [empForm, setEmpForm] = useState({ name: '', role: '', phone: '', daily_rate: '', user_id: '' })
+  const [empForm, setEmpForm] = useState({ name: '', role: '', phone: '', daily_rate: '', user_id: '', branch_id: '' })
   const [resetTarget, setResetTarget] = useState(null) // user yang di-reset password
 
   const load = () => {
-    Promise.all([api.get('/users'), api.get('/employees')])
-      .then(([u, e]) => { setUsers(u); setEmployees(e) })
+    Promise.all([api.get('/users'), api.get('/employees'), api.get('/branches')])
+      .then(([u, e, b]) => { setUsers(u); setEmployees(e); setBranches(b.filter((x) => x.is_active)) })
       .catch((e) => setError(e.message))
   }
   useEffect(load, [])
@@ -42,9 +43,10 @@ export default function Karyawan() {
         ...empForm,
         daily_rate: Number(empForm.daily_rate || 0),
         user_id: empForm.user_id ? Number(empForm.user_id) : null,
+        branch_id: empForm.branch_id ? Number(empForm.branch_id) : null,
       })
       setSuccess(`Karyawan ${empForm.name} berhasil ditambahkan.`)
-      setEmpForm({ name: '', role: '', phone: '', daily_rate: '', user_id: '' })
+      setEmpForm({ name: '', role: '', phone: '', daily_rate: '', user_id: '', branch_id: '' })
       load()
     } catch (err) { setError(err.message) }
   }
@@ -72,6 +74,16 @@ export default function Karyawan() {
       await api.del(`/employees/${emp.id}`)
       load()
     } catch (err) { setError(err.message) }
+  }
+
+  // Tugaskan / ubah cabang absen karyawan langsung dari tabel
+  const assignBranch = async (emp, branchId) => {
+    setError(''); setSuccess('')
+    try {
+      await api.patch(`/employees/${emp.id}`, { branch_id: branchId ? Number(branchId) : null })
+      setSuccess(`${emp.name} ditugaskan ke ${branches.find((b) => String(b.id) === String(branchId))?.name || 'tanpa cabang'}.`)
+      load()
+    } catch (err) { setError(err.message); load() }
   }
 
   return (
@@ -191,6 +203,15 @@ export default function Karyawan() {
                 ))}
             </select>
           </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-bold mb-1.5">Cabang (Lokasi Absen)</label>
+            <select value={empForm.branch_id} onChange={(e) => setEmpForm({ ...empForm, branch_id: e.target.value })} className={inputCls}>
+              <option value="">— belum ditugaskan —</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name} (radius {b.radius_m} m)</option>
+              ))}
+            </select>
+          </div>
           <div className="md:col-span-5">
             <button type="submit" className="bg-char hover:bg-char-soft text-white font-bold px-8 py-3.5 rounded-full transition-colors text-sm">
               Tambah Karyawan
@@ -206,13 +227,14 @@ export default function Karyawan() {
                 <th className="px-6 py-3 font-semibold">Posisi</th>
                 <th className="px-6 py-3 font-semibold">Tarif Harian</th>
                 <th className="px-6 py-3 font-semibold">Kasbon Belum Lunas</th>
+                <th className="px-6 py-3 font-semibold">Cabang</th>
                 <th className="px-6 py-3 font-semibold">Akun Login</th>
                 <th className="px-6 py-3 font-semibold text-right">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {employees.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-char/50">Belum ada karyawan.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-char/50">Belum ada karyawan.</td></tr>
               )}
               {employees.map((emp) => (
                 <tr key={emp.id} className="border-t border-black/5">
@@ -223,6 +245,18 @@ export default function Karyawan() {
                     {emp.kasbon_open > 0 ? (
                       <span className="text-xs font-bold text-chili bg-red-50 px-2.5 py-1 rounded-full">Rp {emp.kasbon_open.toLocaleString('id-ID')}</span>
                     ) : '—'}
+                  </td>
+                  <td className="px-6 py-4">
+                    <select
+                      value={emp.branch_id ?? ''}
+                      onChange={(e) => assignBranch(emp, e.target.value)}
+                      className="bg-cream/60 border border-black/10 rounded-lg px-2 py-1.5 text-xs font-semibold max-w-[160px]"
+                    >
+                      <option value="">— belum ditugaskan —</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-6 py-4 text-char/60">{emp.account_email || <span className="text-char/30">belum terhubung</span>}</td>
                   <td className="px-6 py-4 text-right">

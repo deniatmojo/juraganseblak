@@ -2,6 +2,9 @@
     <!-- Wajib: tanpa ini build RELEASE tidak bisa mengakses internet
          (template Flutter hanya menaruhnya di manifest debug/profile). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Absensi GPS: validasi radius titik cabang saat clock in/out -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="Juragan Seblak"
         android:name="${applicationName}"
