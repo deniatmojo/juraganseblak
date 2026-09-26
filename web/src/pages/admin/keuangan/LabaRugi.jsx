@@ -36,7 +36,7 @@ export default function LabaRugi() {
         { rows: [{ label: 'Laba Kotor', value: d.gross_profit, strong: true }], rule: true },
         { heading: 'BEBAN OPERASIONAL', rows: d.expenses.map((r) => ({ label: r.label, value: r.amount, sub: true, negative: true })) },
         { rows: [{ label: 'Total Beban', value: d.expense_total, strong: true, negative: true }], rule: true },
-        { rows: [{ label: d.net_profit >= 0 ? 'LABA BERSIH' : 'RUGI BERSIH', value: d.net_profit, strong: true }] },
+        { rows: [{ label: d.net_profit >= 0 ? 'LABA BERSIH' : 'RUGI BERSIH', value: d.net_profit, strong: true, negative: d.net_profit < 0 }] },
       ],
     })
   }

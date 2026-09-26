@@ -59,7 +59,8 @@ export function reportPdf({ title, subtitle, from, to, blocks, filename }) {
       if (row.negative) doc.setTextColor(200, 30, 15)
       else doc.setTextColor(22, 17, 15)
       doc.text(String(row.label), 14 + indent, y)
-      const val = (row.negative && row.value > 0 ? '− ' : '') + (typeof row.value === 'number' ? fmtRp(Math.abs(row.value)) : String(row.value ?? '—'))
+      // jsPDF font standar (WinAnsi) tidak punya glyph U+2212 — wajib pakai minus ASCII.
+      const val = (row.negative && row.value > 0 ? '- ' : '') + (typeof row.value === 'number' ? fmtRp(Math.abs(row.value)) : String(row.value ?? '-'))
       doc.text(val, W - 14 - indent, y, { align: 'right' })
       y += row.strong ? 7 : 5.5
     }
