@@ -287,7 +287,7 @@ export default function Menu() {
       {form && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setForm(null)}></div>
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-7 max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-white rounded-2xl w-full max-w-2xl p-7 max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-xl uppercase mb-6">{form.id ? 'Edit Menu' : 'Menu Baru'}</h2>
 
             <div className="space-y-4">
@@ -329,13 +329,14 @@ export default function Menu() {
                 <label className="block text-sm font-bold mb-1.5">Bahan Stok Terhubung <span className="font-normal text-char/40">(bisa lebih dari satu)</span></label>
                 <div className="space-y-2">
                   {form.stock_links.map((l, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <select value={l.stock_item_id} onChange={(e) => editLink(i, 'stock_item_id', e.target.value)} className={`${inputCls} flex-1`}>
+                    <div key={i} className="flex items-center gap-2.5">
+                      <select value={l.stock_item_id} onChange={(e) => editLink(i, 'stock_item_id', e.target.value)} className={`${inputCls} flex-1 min-w-0`}>
                         <option value="">— pilih bahan —</option>
-                        {stockItems.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>)}
+                        {stockItems.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.unit}) — sisa {s.qty}</option>)}
                       </select>
-                      <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 porsi" value={l.qty_per_unit} onChange={(e) => editLink(i, 'qty_per_unit', e.target.value)} className={`${inputCls} w-24 text-center`} />
-                      <button onClick={() => removeLink(i)} aria-label="Hapus bahan" className="text-chili hover:text-chili-dark font-bold px-1.5 text-lg leading-none">×</button>
+                      <span className="text-xs font-bold text-char/40 shrink-0">per porsi</span>
+                      <input type="number" step="0.01" min="0" title="Pemakaian bahan per 1 porsi" value={l.qty_per_unit} onChange={(e) => editLink(i, 'qty_per_unit', e.target.value)} className={`${inputCls} w-24 text-center shrink-0`} />
+                      <button onClick={() => removeLink(i)} aria-label="Hapus bahan" className="text-chili hover:text-chili-dark font-bold px-1.5 text-lg leading-none shrink-0">×</button>
                     </div>
                   ))}
                 </div>
