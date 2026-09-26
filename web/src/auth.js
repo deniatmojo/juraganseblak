@@ -108,7 +108,7 @@ const ADMIN_BLOCKED = ['/erp/gaji', '/erp/karyawan', '/erp/keuangan']
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
-  if (role === 'admin') return !ADMIN_BLOCKED.includes(path)
+  if (role === 'admin') return !ADMIN_BLOCKED.some((p) => path === p || path.startsWith(p + '/'))
   if (role === 'kasir') return path === '/erp/absensi' || path === '/erp/pos'
   if (role === 'karyawan') return path === '/erp/absensi'
   return false

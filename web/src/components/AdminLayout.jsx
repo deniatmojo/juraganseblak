@@ -9,7 +9,11 @@ const headerMeta = {
   '/erp/menu': { title: 'Manajemen Menu', subtitle: 'Kelola menu, harga, HPP & kategori' },
   '/erp/absensi': { title: 'Absensi', subtitle: 'Kehadiran karyawan hari ini' },
   '/erp/stock': { title: 'Stok Bahan Baku', subtitle: 'Pantau ketersediaan bahan dapur' },
-  '/erp/keuangan': { title: 'Laporan Keuangan', subtitle: 'Pemasukan & pengeluaran outlet' },
+  '/erp/keuangan': { title: 'Keuangan', subtitle: 'Ringkasan kas & transaksi' },
+  '/erp/keuangan/laba-rugi': { title: 'Laba Rugi', subtitle: 'Pendapatan, HPP, beban, dan laba bersih' },
+  '/erp/keuangan/arus-kas': { title: 'Arus Kas', subtitle: 'Pergerakan kas operasional, investasi, pendanaan' },
+  '/erp/keuangan/buku-besar': { title: 'Buku Besar', subtitle: 'Saldo berjalan per akun' },
+  '/erp/keuangan/jurnal': { title: 'Jurnal Umum', subtitle: 'Catatan kronologis debit-kredit' },
   '/erp/karyawan': { title: 'Karyawan', subtitle: 'Kelola akun login & data karyawan' },
   '/erp/gaji': { title: 'Gaji & Payroll', subtitle: 'Rekap gaji, kasbon, dan pembayaran' },
 }

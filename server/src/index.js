@@ -15,6 +15,7 @@ import usersRouter from './routes/users.js';
 import employeesRouter from './routes/employees.js';
 import attendanceRouter from './routes/attendance.js';
 import payrollRouter from './routes/payroll.js';
+import financeRouter from './routes/finance.js';
 import uploadRouter from './routes/upload.js';
 import { autoClockOut } from './routes/attendance.js';
 import { requireAuth, requireRole } from './auth.js';
@@ -51,6 +52,8 @@ app.use('/api/users', requireRole('owner'));
 app.use('/api/employees', requireRole('owner'));
 app.use('/api/attendance', (req, res, next) => (req.method === 'PATCH' ? adminOnly(req, res, next) : next()));
 app.use('/api/payroll', requireRole('owner'));
+// Laporan keuangan (laba rugi, arus kas, buku besar, jurnal): owner only.
+app.use('/api/finance', requireRole('owner'));
 app.use('/api/upload', adminOnly);
 app.use('/api/shifts', requireAuth, (req, res, next) => {
   // Daftar riwayat shift = owner/admin (diproses di route); aktifitas shift
@@ -69,6 +72,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/employees', employeesRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/payroll', payrollRouter);
+app.use('/api/finance', financeRouter);
 app.use('/api/upload', uploadRouter);
 
 app.use((err, _req, res, _next) => {
