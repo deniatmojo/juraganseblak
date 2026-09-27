@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Klien API — padanan web/src/api.js. Base URL menunjuk ke server produksi
@@ -83,6 +84,34 @@ class ApiClient {
   Future<dynamic> patch(String path, Object body) =>
       request(path, method: 'PATCH', body: body);
   Future<dynamic> del(String path) => request(path, method: 'DELETE');
+
+  /// Upload gambar multipart — padanan fetch('/api/upload', FormData) di web
+  /// (field 'photo', server multer hanya menerima jpg/png/webp/gif, maks 2MB).
+  Future<dynamic> upload(String path,
+      {required String field,
+      required String filename,
+      required List<int> bytes,
+      String contentType = 'image/jpeg'}) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final req = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $_token'
+      ..files.add(http.MultipartFile.fromBytes(field, bytes,
+          filename: filename,
+          contentType: MediaType.parse(contentType)));
+    final streamed = await req.send().timeout(const Duration(seconds: 60));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 400) {
+      if (res.statusCode == 401 && onUnauthorized != null) onUnauthorized!();
+      String msg = 'Upload gagal (${res.statusCode})';
+      try {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['error'] != null) msg = data['error'];
+      } catch (_) {}
+      throw Exception(msg);
+    }
+    if (res.body.isEmpty) return null;
+    return jsonDecode(res.body);
+  }
 }
 
 final api = ApiClient();

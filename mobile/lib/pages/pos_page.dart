@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../services/thermal_printer.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -370,6 +371,7 @@ class _PosPageState extends State<PosPage> {
         storeAddress: storeAddress,
         storePhone: storePhone,
         storeFooter: storeFooter,
+        onPrint: (kind) => _printFromCart(kind, o),
         onClose: () {
           Navigator.pop(context);
           setState(() => cart.clear());
@@ -377,6 +379,109 @@ class _PosPageState extends State<PosPage> {
         },
       ),
     );
+  }
+
+  // ---------- CETAK TERMAL 58mm (ESC/POS Bluetooth — padanan window.print) ----------
+
+  static String _fmtDateId(dynamic dt) {
+    final s = '$dt';
+    if (s.length < 16) return s;
+    return '${s.substring(0, 10).split('-').reversed.join('/')} ${s.substring(11, 16).replaceAll(':', '.')}';
+  }
+
+  Future<void> _printFromCart(String kind, Map<String, dynamic> o) async {
+    final items = [
+      for (final l in cart) ThermalItem(l.qty, l.item.name, l.item.price, l.note),
+    ];
+    await _doPrint(kind, o, items, cashierOverride: widget.user.name);
+  }
+
+  /// Cetak ulang dari antrian — ambil detail pesanan dulu (padanan
+  /// printFromQueue() Pos.jsx:303-325).
+  Future<void> _printFromQueue(Map<String, dynamic> o, String kind) async {
+    try {
+      final detail =
+          Map<String, dynamic>.from(await api.get('/orders/${o['id']}') as Map);
+      final items = [
+        for (final i in (detail['items'] as List? ?? []))
+          ...() {
+            final m = Map<String, dynamic>.from(i as Map);
+            return [
+              ThermalItem(
+                  int.tryParse('${m['qty']}') ?? 0,
+                  '${m['name'] ?? ''}',
+                  (num.tryParse('${m['unit_price']}') ?? 0).toDouble(),
+                  m['note'] == null || '${m['note']}'.isEmpty || '${m['note']}' == 'null'
+                      ? null
+                      : '${m['note']}'),
+            ];
+          }(),
+      ];
+      await _doPrint(kind, detail, items,
+          cashierOverride: '${detail['cashier_name'] ?? widget.user.name}');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.chili,
+          content: Text(e.toString().replaceFirst('Exception: ', ''),
+              style: AppText.body(size: 12, color: Colors.white)),
+        ));
+      }
+    }
+  }
+
+  Future<void> _doPrint(String kind, Map<String, dynamic> o,
+      List<ThermalItem> items,
+      {String? cashierOverride}) async {
+    num n(String k) => num.tryParse('${o[k]}') ?? 0;
+    try {
+      await ThermalPrinter.print(
+        context,
+        ThermalData(
+          kind: kind,
+          no: '${o['order_no'] ?? ''}',
+          date: _fmtDateId(o['created_at']),
+          cashier: cashierOverride ?? '${o['cashier_name'] ?? widget.user.name}',
+          customer: o['customer_name'] == null || '${o['customer_name']}' == 'null'
+              ? null
+              : '${o['customer_name']}',
+          table: o['table_no'] == null || '${o['table_no']}' == 'null'
+              ? null
+              : '${o['table_no']}',
+          method: payLabels['${o['pay_method']}'] ?? '${o['pay_method']}',
+          storeName: storeName,
+          storeAddress: storeAddress,
+          storePhone: storePhone,
+          footer:
+              '${o['receipt_footer'] ?? storeFooter}'.isEmpty || '${o['receipt_footer'] ?? ''}' == 'null'
+                  ? (storeFooter.isEmpty ? 'Terima kasih!' : storeFooter)
+                  : '${o['receipt_footer']}',
+          items: items,
+          subtotal: n('subtotal').toDouble(),
+          tax: n('tax_amount').toDouble(),
+          service: n('service_amount').toDouble(),
+          total: n('total').toDouble(),
+        ),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.char,
+          content: Text('Terkirim ke printer — $kind.',
+              style: AppText.body(size: 12, color: Colors.white)),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.chili,
+          content: Text(e.toString().replaceFirst('Exception: ', ''),
+              style: AppText.body(size: 12, color: Colors.white)),
+        ));
+      }
+    }
   }
 
   // ---------- SHIFT ----------
@@ -1349,14 +1454,38 @@ class _QtyButton extends StatelessWidget {
   }
 }
 
-/// Bottom sheet antrian pesanan hari ini — padanan modal Antrian web.
-class _QueueSheet extends StatelessWidget {
+/// Bottom sheet antrian pesanan hari ini — padanan modal Antrian web
+/// (auto-refresh 15 detik, cetak struk/resep dapur, lunaskan).
+class _QueueSheet extends StatefulWidget {
   final _PosPageState state;
   const _QueueSheet({required this.state});
 
   @override
+  State<_QueueSheet> createState() => _QueueSheetState();
+}
+
+class _QueueSheetState extends State<_QueueSheet> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Polling antrian tiap 15 detik selama sheet terbuka (Pos.jsx:284-290).
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      await widget.state._loadQueue();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final s = state;
+    final s = widget.state;
     return SizedBox(
       height: MediaQuery.of(context).size.height * 0.85,
       child: StatefulBuilder(
@@ -1463,7 +1592,6 @@ class _QueueSheet extends StatelessWidget {
                                         size: 13, weight: FontWeight.w700)),
                                 const SizedBox(width: 8),
                                 Text(
-                                    '${'$o'.contains('created_at') ? '' : ''}'
                                     '${('${o['created_at'] ?? ''}'.length >= 16) ? '${o['created_at']}'.substring(11, 16) : ''}',
                                     style: AppText.body(
                                         size: 11, color: Colors.black45)),
@@ -1493,17 +1621,58 @@ class _QueueSheet extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: AppText.body(
                                       size: 11, color: Colors.black45)),
-                              if (o['status'] == 'pending') ...[
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: FilledButton(
+                              if (o['void_reason'] != null &&
+                                  '${o['void_reason']}'.isNotEmpty &&
+                                  '${o['void_reason']}' != 'null')
+                                Text('Dibatalkan: ${o['void_reason']}',
+                                    style: AppText.body(
+                                        size: 11,
+                                        color: AppColors.chili)),
+                              const SizedBox(height: 8),
+                              Row(children: [
+                                // Cetak ulang dari antrian (Pos.jsx:662-663)
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                          color: Colors.black26),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 6)),
+                                  onPressed: o['status'] == 'canceled'
+                                      ? null
+                                      : () => s
+                                          ._printFromQueue(o, 'struk'),
+                                  child: Text('Cetak Struk',
+                                      style: AppText.body(
+                                          size: 10,
+                                          weight: FontWeight.w700)),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                      side: BorderSide(
+                                          color: AppColors.ember
+                                              .withValues(alpha: 0.4)),
+                                      foregroundColor: AppColors.ember,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 6)),
+                                  onPressed: o['status'] == 'canceled'
+                                      ? null
+                                      : () => s
+                                          ._printFromQueue(o, 'dapur'),
+                                  child: Text('Cetak Resep Dapur',
+                                      style: AppText.body(
+                                          size: 10,
+                                          weight: FontWeight.w700)),
+                                ),
+                                const Spacer(),
+                                if (o['status'] == 'pending')
+                                  FilledButton(
                                     style: FilledButton.styleFrom(
                                         backgroundColor:
                                             const Color(0xFF16A34A),
                                         elevation: 0,
                                         padding: const EdgeInsets.symmetric(
-                                            vertical: 8),
+                                            horizontal: 14, vertical: 6),
                                         shape: RoundedRectangleBorder(
                                             borderRadius:
                                                 BorderRadius.circular(999))),
@@ -1517,8 +1686,7 @@ class _QueueSheet extends StatelessWidget {
                                             weight: FontWeight.w700,
                                             color: Colors.white)),
                                   ),
-                                ),
-                              ],
+                              ]),
                             ]),
                       ),
                   ],
@@ -1530,7 +1698,7 @@ class _QueueSheet extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               color: AppColors.cream,
               child: Text(
-                'Cetak struk termal 58mm tersedia di versi web · antrian menyegarkan saat dibuka',
+                'Antrian menyegarkan otomatis tiap 15 detik · cetakan format kertas termal 58mm via Bluetooth.',
                 textAlign: TextAlign.center,
                 style: AppText.body(size: 10, color: Colors.black38),
               ),
@@ -1551,6 +1719,7 @@ class _ReceiptDialog extends StatelessWidget {
   final String cashier;
   final List<_CartLine> lines;
   final String storeName, storeAddress, storePhone, storeFooter;
+  final void Function(String kind) onPrint;
   final VoidCallback onClose;
 
   const _ReceiptDialog({
@@ -1561,6 +1730,7 @@ class _ReceiptDialog extends StatelessWidget {
     required this.storeAddress,
     required this.storePhone,
     required this.storeFooter,
+    required this.onPrint,
     required this.onClose,
   });
 
@@ -1628,6 +1798,41 @@ class _ReceiptDialog extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: AppText.body(size: 10, color: Colors.black38)),
             const SizedBox(height: 16),
+            // Tombol cetak termal (padanan Pos.jsx:783-790)
+            Row(children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.char,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12)),
+                  onPressed: () => onPrint('struk'),
+                  icon: const Icon(Icons.print_outlined, size: 16),
+                  label: Text('Cetak Struk',
+                      style: AppText.body(
+                          size: 11,
+                          weight: FontWeight.w700,
+                          color: Colors.white)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.ember,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12)),
+                  onPressed: () => onPrint('dapur'),
+                  icon: const Icon(Icons.restaurant_outlined, size: 16),
+                  label: Text('Cetak Resep Dapur',
+                      style: AppText.body(
+                          size: 11,
+                          weight: FontWeight.w700,
+                          color: Colors.white)),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 10),
             primaryButton('Kirim WhatsApp',
                 color: const Color(0xFF16A34A),
                 onPressed: () => _sendWhatsApp(context)),

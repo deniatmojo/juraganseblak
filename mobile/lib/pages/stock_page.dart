@@ -4,7 +4,9 @@ import '../auth_service.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
-/// Stok bahan baku — GET /stock + /stock/movements, aksi POST /stock/:id/move.
+/// Stok bahan baku — menyalin web/src/pages/admin/Stock.jsx:
+/// GET /stock + /stock/movements, POST /stock/:id/move (dengan unit_cost &
+/// catatan agar belanja bahan otomatis tercatat di Keuangan), POST /stock.
 class StockPage extends StatefulWidget {
   final AppUser user;
   const StockPage({super.key, required this.user});
@@ -49,8 +51,13 @@ class _StockPageState extends State<StockPage> {
     }
   }
 
+  /// Modal mutasi (masuk/keluar/opname) — sama seperti web: type 'in'
+  /// menampilkan "Harga Beli per {unit} *" + preview total pembelian,
+  /// semua tipe punya "Catatan (opsional)".
   Future<void> _moveDialog(Map<String, dynamic> item, String type) async {
-    final ctrl = TextEditingController();
+    final qtyCtrl = TextEditingController();
+    final costCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
     final title = {
       'in': 'Barang Masuk (Restock)',
       'out': 'Barang Keluar (Waste/Pakai)',
@@ -58,41 +65,198 @@ class _StockPageState extends State<StockPage> {
     }[type]!;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (d) => AlertDialog(
-        title: Text(title, style: AppText.display(size: 17)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(
-              '${item['name']} · sisa ${_fmt(item['qty'])} ${item['unit']}',
-              style: AppText.body(size: 12, color: Colors.black54)),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-                labelText: type == 'adjust'
-                    ? 'Jumlah baru (${item['unit']})'
-                    : 'Jumlah (${item['unit']})'),
-          ),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(d, false),
-              child: const Text('Batal')),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: AppColors.chili, elevation: 0),
-            onPressed: () => Navigator.pop(d, true),
-            child: const Text('Simpan'),
-          ),
-        ],
+      builder: (d) => StatefulBuilder(
+        builder: (d, setD) => AlertDialog(
+          title: Text(title, style: AppText.display(size: 17)),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+                '${item['name']} — saat ini ${_fmt(item['qty'])} ${item['unit']}',
+                style: AppText.body(size: 12, color: Colors.black54)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: qtyCtrl,
+              autofocus: true,
+              onChanged: (_) => setD(() {}),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                  labelText: type == 'adjust'
+                      ? 'Jumlah Stok Hasil Opname'
+                      : type == 'in'
+                          ? 'Jumlah Masuk'
+                          : 'Jumlah Keluar',
+                  suffixText: '${item['unit']}'),
+            ),
+            if (type == 'in') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: costCtrl,
+                onChanged: (_) => setD(() {}),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: false),
+                decoration: const InputDecoration(
+                    labelText: 'Harga Beli per unit *',
+                    prefixText: 'Rp ',
+                    hintText: 'mis. 35000'),
+              ),
+              if ((_num(qtyCtrl.text) ?? 0) > 0 &&
+                  (_num(costCtrl.text) ?? 0) > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Total pembelian: ${formatRp((_num(qtyCtrl.text) ?? 0) * (_num(costCtrl.text) ?? 0))} — otomatis tercatat di Keuangan sebagai belanja bahan.',
+                    style: AppText.body(
+                        size: 11,
+                        weight: FontWeight.w700,
+                        color: AppColors.ember),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteCtrl,
+              decoration: InputDecoration(
+                  labelText: 'Catatan (opsional)',
+                  hintText:
+                      type == 'in' ? 'Belanja dari supplier...' : ''),
+            ),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d, false),
+                child: const Text('Batal')),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.chili, elevation: 0),
+              onPressed: () => Navigator.pop(d, true),
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
       ),
     );
     if (ok != true) return;
     try {
-      await api.post('/stock/${item['id']}/move',
-          {'type': type, 'qty': num.tryParse(ctrl.text) ?? 0});
+      await api.post('/stock/${item['id']}/move', {
+        'type': type,
+        'qty': _num(qtyCtrl.text) ?? 0,
+        'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+        'unit_cost': _num(costCtrl.text) ?? 0,
+      });
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  /// Modal Bahan Baru — nama, kategori, satuan, stok awal, harga per unit,
+  /// batas minimum (menyalin web Stock.jsx:258-304).
+  Future<void> _addDialog() async {
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController();
+    final costCtrl = TextEditingController();
+    final minCtrl = TextEditingController();
+    String category = 'Protein';
+    String unit = 'kg';
+    const categories = ['Protein', 'Bumbu', 'Pokok', 'Pelengkap', 'Lain-lain'];
+    const units = ['kg', 'gram', 'liter', 'ml', 'pcs', 'pack'];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, setD) => AlertDialog(
+          title: Text('Bahan Baru', style: AppText.display(size: 17)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Nama Bahan')),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: category,
+                  decoration:
+                      const InputDecoration(labelText: 'Kategori'),
+                  items: [
+                    for (final c in categories)
+                      DropdownMenuItem(value: c, child: Text(c)),
+                  ],
+                  onChanged: (v) => setD(() => category = v!),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: unit,
+                  decoration: const InputDecoration(labelText: 'Satuan'),
+                  items: [
+                    for (final u in units)
+                      DropdownMenuItem(value: u, child: Text(u)),
+                  ],
+                  onChanged: (v) => setD(() => unit = v!),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: TextField(
+                    controller: qtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration:
+                        const InputDecoration(labelText: 'Stok Awal')),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                    controller: costCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                        labelText: 'Harga per $unit',
+                        prefixText: 'Rp ')),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+                controller: minCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true),
+                decoration:
+                    const InputDecoration(labelText: 'Batas Minimum')),
+            const SizedBox(height: 8),
+            Text(
+              'Harga per unit dipakai untuk menilai persediaan & menghitung HPP di laporan Laba Rugi. Stok awal tidak dihitung sebagai pembelian.',
+              style: AppText.body(size: 10, color: Colors.black38),
+            ),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d, false),
+                child: const Text('Batal')),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.chili, elevation: 0),
+              onPressed: () => Navigator.pop(d, true),
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    if (nameCtrl.text.trim().isEmpty) return;
+    try {
+      await api.post('/stock', {
+        'name': nameCtrl.text.trim(),
+        'category': category,
+        'unit': unit,
+        'qty': _num(qtyCtrl.text) ?? 0,
+        'min_qty': _num(minCtrl.text) ?? 0,
+        'unit_cost': _num(costCtrl.text) ?? 0,
+      });
       await _load();
     } catch (e) {
       if (mounted) {
@@ -165,11 +329,29 @@ class _StockPageState extends State<StockPage> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                  child: SizedBox(
-                      width: double.infinity,
+                  child: Row(children: [
+                    Expanded(
                       child: Text('Daftar Bahan Baku',
                           style: AppText.body(
-                              size: 15, weight: FontWeight.w700))),
+                              size: 15, weight: FontWeight.w700)),
+                    ),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.chili,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999))),
+                      onPressed: _addDialog,
+                      icon: const Icon(Icons.add, size: 16),
+                      label: Text('+ Bahan Baru',
+                          style: AppText.body(
+                              size: 11,
+                              weight: FontWeight.w700,
+                              color: Colors.white)),
+                    ),
+                  ]),
                 ),
                 for (final item in items)
                   Container(
@@ -184,6 +366,11 @@ class _StockPageState extends State<StockPage> {
                               style: AppText.body(
                                   size: 13, weight: FontWeight.w700)),
                         ),
+                        Text(
+                            '${item['category']} · ${(_num(item['unit_cost']) ?? 0) > 0 ? '${formatRp(_num(item['unit_cost']) ?? 0)}/${item['unit']}' : 'belum diatur'}',
+                            style: AppText.body(
+                                size: 11, color: Colors.black38)),
+                        const SizedBox(width: 8),
                         StatusChip(
                             item['is_low'] == 1 || item['is_low'] == true
                                 ? 'Kritis'
@@ -284,6 +471,14 @@ class _StockPageState extends State<StockPage> {
                       style:
                           AppText.body(size: 15, weight: FontWeight.w700)),
                 ),
+                if (movements.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                        child: Text('Belum ada pergerakan stok.',
+                            style: AppText.body(
+                                size: 12, color: Colors.black26))),
+                  ),
                 for (final m in movements)
                   ListTile(
                     dense: true,
@@ -292,16 +487,20 @@ class _StockPageState extends State<StockPage> {
                     leading: Icon(
                         m['type'] == 'in'
                             ? Icons.south_west
-                            : Icons.north_east,
+                            : m['type'] == 'adjust'
+                                ? Icons.tune
+                                : Icons.north_east,
                         size: 18,
                         color: m['type'] == 'in'
                             ? AppColors.greenOk
-                            : AppColors.chili),
+                            : m['type'] == 'adjust'
+                                ? AppColors.ember
+                                : AppColors.chili),
                     title: Text(
-                        '${m['item_name']} — ${m['type']} ${_fmt(m['qty'])}',
+                        '${m['item_name']} — ${m['type'] == 'in' ? 'Masuk' : m['type'] == 'adjust' ? 'Opname' : 'Keluar'} ${_fmt(m['qty'])}',
                         style: AppText.body(size: 12, color: Colors.black54)),
                     subtitle: Text(
-                        '${m['by_name'] ?? 'sistem'}${m['note'] != null && m['note'] != '' ? ' · ${m['note']}' : ''}',
+                        '${m['by_name'] ?? 'Sistem'}${m['note'] != null && m['note'] != '' ? ' · ${m['note']}' : ''}',
                         style:
                             AppText.body(size: 11, color: Colors.black38)),
                   ),
