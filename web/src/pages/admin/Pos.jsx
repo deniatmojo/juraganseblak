@@ -6,7 +6,6 @@ import { api } from '../../api'
 const payMethods = [
   { key: 'cash', label: 'Cash', icon: 'M3 10h18M7 15h1m4 0h5M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1z' },
   { key: 'qris', label: 'QRIS', icon: 'M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3m3 0h-3m0-3v3m0 0v3' },
-  { key: 'debit', label: 'Debit/Kredit', icon: 'M3 10h18M3 6h18a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V7a1 1 0 011-1zm3 8h4' },
 ]
 const payLabels = { cash: 'Cash', qris: 'QRIS', debit: 'Debit/Kredit' }
 
@@ -189,17 +188,15 @@ export default function Pos() {
 
   // Titik masuk tombol Bayar — pilih alur sesuai metode & konfigurasi.
   const startCheckout = () => {
-    if (selectedPay === 'qris' && (paySettings.gateway || 'none') === 'none') {
-      if (paySettings.qrisImage) {
-        setPayModal({ type: 'static' })
-        return
-      }
-    }
+    // QRIS dinamis via gateway: pesanan 'pending' memang dibuat dulu (butuh
+    // nomor order di QR), pelunasannya via webhook / konfirmasi manual.
     if (selectedPay === 'qris' && paySettings.gateway && paySettings.gateway !== 'none') {
       createGatewayOrder()
       return
     }
-    createOrder()
+    // Cash & QRIS statis: pesanan TIDAK langsung dibuat. Buka modal konfirmasi
+    // dua langkah selagi menunggu pembayaran — pembeli bisa batal di tengah.
+    setPayModal({ type: 'confirm', stage: 1 })
   }
 
   // Polling status pesanan gateway tiap 3 detik selama modal QR terbuka.
@@ -486,7 +483,7 @@ export default function Pos() {
 
         <div className="px-6 pb-6 shrink-0">
           <p className="text-xs font-bold text-char/50 mb-2.5">Metode Pembayaran</p>
-          <div className="grid grid-cols-3 gap-2.5 mb-5">
+          <div className="grid grid-cols-2 gap-2.5 mb-5">
             {payMethods.map((m) => (
               <button
                 key={m.key}
@@ -511,23 +508,65 @@ export default function Pos() {
         </div>
       </section>
 
-      {/* QRIS STATIS — tampilkan QR milik merchant, konfirmasi manual kasir */}
-      {payModal?.type === 'static' && (
+      {/* MODAL KONFIRMASI PEMBAYARAN (cash & QRIS statis) — dua langkah:
+          1) menunggu pembayaran (animasi loading), 2) konfirmasi ulang.
+          Pesanan baru dibuat setelah langkah kedua — pembeli bisa batal. */}
+      {payModal?.type === 'confirm' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setPayModal(null)}></div>
           <div className="relative bg-white rounded-2xl w-full max-w-sm p-7 text-center">
-            <h2 className="font-display text-xl uppercase">Bayar via QRIS</h2>
-            <p className="text-char/50 text-sm mt-1">Minta pelanggan scan QR di bawah ini</p>
-            <div className="my-5 flex flex-col items-center">
-              {paySettings.qrisMerchant && <p className="text-xs font-bold text-char/60 mb-2">{paySettings.qrisMerchant}</p>}
-              <img src={paySettings.qrisImage} alt="QRIS statis" className="w-56 h-56 object-contain rounded-xl border border-black/10" />
-              <p className="font-display text-2xl text-chili mt-4">{formatRp(grandTotal)}</p>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setPayModal(null)} className="flex-1 border border-black/15 text-char font-bold py-3 rounded-full text-sm">Batal</button>
-              <button onClick={() => { setPayModal(null); createOrder() }} className="flex-1 bg-chili hover:bg-chili-dark text-white font-bold py-3 rounded-full text-sm">Sudah Diterima</button>
-            </div>
-            <p className="text-[11px] text-char/40 mt-4">Klik "Sudah Diterima" setelah pembayaran terkonfirmasi di HP Anda.</p>
+            {selectedPay === 'qris' && paySettings.qrisImage && payModal.stage === 1 && (
+              <div className="mb-4 flex flex-col items-center">
+                {paySettings.qrisMerchant && <p className="text-xs font-bold text-char/60 mb-2">{paySettings.qrisMerchant}</p>}
+                <img src={paySettings.qrisImage} alt="QRIS statis" className="w-52 h-52 object-contain rounded-xl border border-black/10" />
+              </div>
+            )}
+
+            {payModal.stage === 1 ? (
+              <>
+                {/* Animasi loading menunggu pembayaran */}
+                <div className="relative w-16 h-16 mx-auto mb-4" aria-hidden="true">
+                  <div className="absolute inset-0 rounded-full border-4 border-chili/20"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-chili animate-spin"></div>
+                  <div className="absolute inset-0 grid place-items-center">
+                    <svg className="w-6 h-6 text-char/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 6h18M4 6v12a1 1 0 001 1h14a1 1 0 001-1V6M9 14h6" /></svg>
+                  </div>
+                </div>
+                <h2 className="font-display text-xl uppercase">Menunggu Pembayaran</h2>
+                <p className="text-char/50 text-sm mt-1">
+                  {selectedPay === 'qris' ? 'Minta pelanggan scan QR dan bayar' : 'Terima uang dari pelanggan'}
+                </p>
+                <p className="font-display text-3xl text-chili my-4">{formatRp(grandTotal)}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setPayModal(null)} className="flex-1 border border-black/15 text-char/70 font-bold py-3 rounded-full text-sm hover:border-char">
+                    Pembeli Batal
+                  </button>
+                  <button onClick={() => setPayModal({ type: 'confirm', stage: 2 })} className="flex-1 bg-chili hover:bg-chili-dark text-white font-bold py-3 rounded-full text-sm">
+                    Uang Diterima
+                  </button>
+                </div>
+                <p className="text-[11px] text-char/40 mt-4">Pesanan belum tersimpan — baru masuk setelah konfirmasi dua kali.</p>
+              </>
+            ) : (
+              <>
+                {/* Konfirmasi kedua — cegah salah klik saat pembeli batal */}
+                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-amber-100 grid place-items-center">
+                  <svg className="w-7 h-7 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                </div>
+                <h2 className="font-display text-xl uppercase">Yakin Sudah Diterima?</h2>
+                <p className="text-char/50 text-sm mt-1">
+                  {formatRp(grandTotal)} via {payLabels[selectedPay] || selectedPay}. Setelah dikonfirmasi, pesanan langsung masuk &amp; stok terpotong.
+                </p>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={() => setPayModal({ type: 'confirm', stage: 1 })} className="flex-1 border border-black/15 text-char/70 font-bold py-3 rounded-full text-sm hover:border-char">
+                    Belum / Batal
+                  </button>
+                  <button onClick={() => { setPayModal(null); createOrder() }} className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-full text-sm">
+                    Ya, Lunas &amp; Cetak
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
