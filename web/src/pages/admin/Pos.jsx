@@ -19,9 +19,20 @@ export default function Pos() {
   const [cart, setCart] = useState([])
   const [selectedPay, setSelectedPay] = useState('cash')
   const [receipt, setReceipt] = useState(null)
-  const [printDoc, setPrintDoc] = useState(null)     // 'struk' | 'dapur' saat print
+  // Pekerjaan cetak termal: { kind: 'struk' | 'dapur', data } — dirender ke
+  // #thermalPrintArea (58mm) lalu window.print().
+  const [printJob, setPrintJob] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  // Info toko untuk struk (dari settings)
+  const [store, setStore] = useState({ name: '', address: '', phone: '', footer: '' })
+
+  // Antrian pesanan hari ini (modal): daftar order + filter status
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [queueOrders, setQueueOrders] = useState([])
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queueFilter, setQueueFilter] = useState('semua') // semua | pending | paid
 
   const [menuItems, setMenuItems] = useState([])
   const [categories, setCategories] = useState([{ key: 'semua', label: 'Semua' }])
@@ -69,6 +80,12 @@ export default function Pos() {
         setMenuItems(products.map((p) => ({ id: p.id, name: p.name, cat: p.category, price: p.price, img: p.image_url })))
         setCategories([{ key: 'semua', label: 'Semua' }, ...cats.map((c) => ({ key: c.key, label: c.label }))])
         setRates({ tax_rate: settings.tax_rate ?? 0.1, service_rate: settings.service_rate ?? 0.05 })
+        setStore({
+          name: settings.store_name || '',
+          address: settings.store_address || '',
+          phone: settings.store_phone || '',
+          footer: settings.receipt_footer || '',
+        })
         setPaySettings({
           gateway: settings.payment_gateway || 'none',
           qrisImage: settings.qris_static_image || '',
@@ -216,7 +233,7 @@ export default function Pos() {
 
   const closeReceipt = () => {
     setReceipt(null)
-    setPrintDoc(null)
+    setPrintJob(null)
     setCart([])
   }
 
@@ -236,15 +253,79 @@ export default function Pos() {
     }
   }, [payModal])
 
-  // Cetak dokumen terpilih (struk pelanggan / resep dapur). Efek ini berjalan
-  // setelah React selesai merender area cetak, barulah window.print() dipanggil.
+  // Cetak: area #thermalPrintArea dirender dulu (58mm), barulah window.print().
+  // Efek ini berjalan setelah React selesai merender area cetak.
   useEffect(() => {
-    if (!printDoc) return
-    const done = () => setPrintDoc(null)
+    if (!printJob) return
+    const done = () => setPrintJob(null)
     window.addEventListener('afterprint', done)
     window.print()
     return () => window.removeEventListener('afterprint', done)
-  }, [printDoc])
+  }, [printJob])
+
+  // QR nomor struk untuk cetak termal — digambar saat printJob struk siap
+  const thermalQrRef = useRef(null)
+  useEffect(() => {
+    if (printJob?.kind === 'struk' && thermalQrRef.current) {
+      QRCode.toCanvas(thermalQrRef.current, printJob.data.no, { width: 100, margin: 0 }, () => {})
+    }
+  }, [printJob])
+
+  // Muat antrian pesanan hari ini
+  const loadQueue = () => {
+    setQueueLoading(true)
+    const today = new Date().toISOString().slice(0, 10)
+    api.get(`/orders?from=${today}&to=${today}`)
+      .then(setQueueOrders)
+      .catch((e) => setError(e.message))
+      .finally(() => setQueueLoading(false))
+  }
+  const openQueue = () => {
+    loadQueue()
+    setQueueOpen(true)
+  }
+  // Polling antrian tiap 15 detik selama modal terbuka
+  useEffect(() => {
+    if (!queueOpen) return
+    const t = setInterval(loadQueue, 15000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueOpen])
+
+  // Lunaskan pesanan pending dari antrian (QRIS statis / webhook belum masuk)
+  const lunaskanOrder = async (o) => {
+    try {
+      await api.post('/payments/confirm-manual', { order_id: o.id })
+      loadQueue()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  // Ambil detail pesanan dari antrian lalu cetak struk / resep dapur termal
+  const printFromQueue = async (o, kind) => {
+    try {
+      const detail = await api.get(`/orders/${o.id}`)
+      setPrintJob({
+        kind,
+        data: {
+          no: detail.order_no,
+          date: new Date(detail.created_at || Date.now()).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
+          cashier: detail.cashier_name,
+          customer: detail.customer_name,
+          table: detail.table_no,
+          items: detail.items.map((i) => ({ qty: i.qty, name: i.name, price: Number(i.unit_price), note: i.note })),
+          subtotal: detail.subtotal,
+          tax: detail.tax_amount,
+          service: detail.service_amount,
+          total: detail.total,
+          method: payLabels[detail.pay_method] || detail.pay_method,
+        },
+      })
+    } catch (e) {
+      setError(e.message)
+    }
+  }
 
   const receiptText = () => {
     if (!receipt) return ''
@@ -289,12 +370,14 @@ export default function Pos() {
                 &nbsp;·&nbsp;Kas awal {formatRp(shift.opening_cash)}
                 &nbsp;·&nbsp;{shift.totals.order_count} pesanan · {formatRp(shift.totals.sales_total)}
               </p>
-              <button onClick={() => setShiftModal('close')} className="ml-auto text-xs font-bold text-white bg-char hover:bg-char-soft px-4 py-2 rounded-full shrink-0">Tutup Shift</button>
+              <button onClick={openQueue} className="ml-auto text-xs font-bold text-char border border-black/15 hover:border-char px-4 py-2 rounded-full shrink-0">Antrian Pesanan</button>
+              <button onClick={() => setShiftModal('close')} className="text-xs font-bold text-white bg-char hover:bg-char-soft px-4 py-2 rounded-full shrink-0">Tutup Shift</button>
             </>
           ) : (
             <>
               <span className="text-xs font-bold text-char/60">Belum ada shift aktif — checkout tetap bisa, tapi tidak tercatat di rekap kas.</span>
-              <button onClick={() => setShiftModal('open')} className="ml-auto text-xs font-bold text-white bg-chili hover:bg-chili-dark px-4 py-2 rounded-full shrink-0">Mulai Shift</button>
+              <button onClick={openQueue} className="ml-auto text-xs font-bold text-char border border-black/15 hover:border-char px-4 py-2 rounded-full shrink-0">Antrian Pesanan</button>
+              <button onClick={() => setShiftModal('open')} className="text-xs font-bold text-white bg-chili hover:bg-chili-dark px-4 py-2 rounded-full shrink-0">Mulai Shift</button>
             </>
           )}
         </div>
@@ -482,6 +565,78 @@ export default function Pos() {
         </div>
       )}
 
+      {/* MODAL ANTRIAN PESANAN — pantau pesanan hari ini, cetak struk/resep */}
+      {queueOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+          <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setQueueOpen(false)}></div>
+          <div className="relative bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-5 border-b border-black/5 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="font-display text-xl uppercase">Antrian Pesanan</h2>
+                <p className="text-xs text-char/50 mt-0.5">
+                  Hari ini &middot; {queueOrders.filter((o) => o.status !== 'canceled').length} pesanan aktif
+                  &middot; {queueOrders.filter((o) => o.status === 'pending').length} menunggu bayar
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={loadQueue} className="text-xs font-bold text-chili hover:underline" disabled={queueLoading}>
+                  {queueLoading ? 'Memuat...' : 'Segarkan'}
+                </button>
+                <button onClick={() => setQueueOpen(false)} className="w-8 h-8 rounded-full border border-black/15 grid place-items-center text-char/60 hover:text-char">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-b border-black/5 flex gap-2 shrink-0">
+              {[['semua', 'Semua'], ['pending', 'Menunggu Bayar'], ['paid', 'Lunas']].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setQueueFilter(key)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold border ${queueFilter === key ? 'bg-chili text-white border-chili' : 'border-black/15 text-char/60'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-[160px]">
+              {(() => {
+                const shown = queueOrders.filter((o) => (queueFilter === 'semua' ? o.status !== 'canceled' : o.status === queueFilter))
+                if (!shown.length) {
+                  return <p className="text-center text-sm text-char/40 py-10">Tidak ada pesanan pada filter ini.</p>
+                }
+                return shown.map((o) => (
+                  <div key={o.id} className={`border rounded-xl px-4 py-3 ${o.status === 'pending' ? 'border-amber-300 bg-amber-50' : 'border-black/10 bg-white'}`}>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-bold text-sm">{o.order_no}</span>
+                      <span className="text-xs text-char/50">{new Date(o.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${o.status === 'paid' ? 'bg-green-100 text-green-700' : o.status === 'pending' ? 'bg-amber-200 text-amber-800' : 'bg-black/10 text-char/50'}`}>
+                        {o.status === 'paid' ? 'Lunas' : o.status === 'pending' ? 'Menunggu' : 'Batal'}
+                      </span>
+                      <span className="text-xs text-char/40">{payLabels[o.pay_method] || o.pay_method}</span>
+                      <span className="ml-auto font-bold text-sm text-chili">{formatRp(o.total)}</span>
+                    </div>
+                    <p className="text-xs text-char/50 mt-1 truncate" title={o.items_preview}>{o.items_preview || '—'}</p>
+                    {o.void_reason && <p className="text-xs text-chili mt-0.5">Dibatalkan: {o.void_reason}</p>}
+                    <div className="flex gap-2 mt-2.5">
+                      <button onClick={() => printFromQueue(o, 'struk')} disabled={o.status === 'canceled'} className="text-xs font-bold border border-black/15 hover:border-char disabled:opacity-40 rounded-full px-3.5 py-1.5">Cetak Struk</button>
+                      <button onClick={() => printFromQueue(o, 'dapur')} disabled={o.status === 'canceled'} className="text-xs font-bold border border-ember/40 text-ember hover:bg-ember/5 disabled:opacity-40 rounded-full px-3.5 py-1.5">Cetak Resep Dapur</button>
+                      {o.status === 'pending' && (
+                        <button onClick={() => lunaskanOrder(o)} className="ml-auto text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-full px-3.5 py-1.5">Lunaskan</button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              })()}
+            </div>
+            <p className="px-6 py-3 border-t border-black/5 text-[11px] text-char/40 shrink-0">
+              Antrian menyegarkan otomatis tiap 15 detik &middot; cetakan format kertas termal 58mm.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* SHIFT MODAL (mulai / tutup) */}
       {shiftModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
@@ -544,7 +699,7 @@ export default function Pos() {
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm"></div>
 
           <div className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden">
-            <div id="receiptPrintArea" className={`p-7 ${printDoc === 'dapur' ? 'hidden' : ''}`}>
+            <div className="p-7">
               <div className="text-center mb-5">
                 <p className="font-display text-xl tracking-wide">{receipt.storeName || 'Juragan Seblak'}</p>
                 {receipt.storeAddress && <p className="text-xs text-char/50 mt-1">{receipt.storeAddress}</p>}
@@ -586,11 +741,11 @@ export default function Pos() {
             </div>
 
             <div className="flex gap-3 px-7 pb-7 pt-1">
-              <button onClick={() => setPrintDoc('struk')} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Struk untuk pelanggan">
+              <button onClick={() => setPrintJob({ kind: 'struk', data: { ...receipt, cashier: user?.name } })} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Struk untuk pelanggan (termal 58mm)">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 9V4h12v5M6 18h12v3H6v-3zm-3-9h18a1 1 0 011 1v6a1 1 0 01-1 1h-3v-3H6v3H3a1 1 0 01-1-1v-6a1 1 0 011-1z" /></svg>
                 Cetak Struk
               </button>
-              <button onClick={() => setPrintDoc('dapur')} className="flex-1 bg-ember hover:bg-ember/90 text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Resep pesanan untuk koki (tanpa harga)">
+              <button onClick={() => setPrintJob({ kind: 'dapur', data: { ...receipt, cashier: user?.name } })} className="flex-1 bg-ember hover:bg-ember/90 text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Resep pesanan untuk koki (tanpa harga, termal 58mm)">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
                 Cetak Resep Dapur
               </button>
@@ -603,29 +758,66 @@ export default function Pos() {
               <button onClick={closeReceipt} className="w-full border border-black/15 text-char font-bold py-3 rounded-full text-sm">Pesanan Baru</button>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* RESEP DAPUR — hanya dirender saat dicetak; disembunyikan dari layar */}
-          {printDoc === 'dapur' && (
-            <div id="kitchenPrintArea" className="fixed top-0 left-[-9999px] w-80 bg-white text-char p-5">
-              <h2 className="text-center text-2xl font-black tracking-widest uppercase leading-tight">Resep Dapur</h2>
-              <p className="text-center text-xs mt-1">{receipt.storeName || 'Juragan Seblak'}</p>
-              <div className="mt-3 border-t-2 border-dashed border-black pt-2 text-xs space-y-1">
-                <div className="flex justify-between"><span>No.</span><span className="font-bold">{receipt.no}</span></div>
-                <div className="flex justify-between"><span>Waktu</span><span>{receipt.date}</span></div>
-                <div className="flex justify-between"><span>Kasir</span><span>{user?.name || '-'}</span></div>
+      {/* AREA CETAK TERMAL 58mm — disembunyikan dari layar; hanya terlihat
+          di hasil print lewat CSS @media print (index.css). */}
+      {printJob && (
+        <div id="thermalPrintArea" className="fixed top-0 left-[-9999px] w-[58mm] bg-white text-black">
+          {printJob.kind === 'struk' ? (
+            <>
+              <div className="th-center">
+                <p className="th-title">{printJob.data.storeName || store.name || 'JURAGAN SEBLAK'}</p>
+                {printJob.data.storeAddress && <p className="th-small">{printJob.data.storeAddress}</p>}
+                {printJob.data.storePhone && <p className="th-small">Telp: {printJob.data.storePhone}</p>}
               </div>
-              <div className="mt-3 border-t-2 border-dashed border-black pt-3 space-y-3">
-                {receipt.items.map((item) => (
-                  <div key={item.id} className="leading-tight">
-                    <p className="text-xl font-black">{item.qty}× {item.name}</p>
-                    {item.note && <p className="text-sm font-bold ml-7">→ {item.note}</p>}
-                  </div>
-                ))}
+              <div className="th-cut"></div>
+              <div className="th-row th-small"><span>No. Struk</span><span>{printJob.data.no}</span></div>
+              <div className="th-row th-small"><span>Kasir</span><span>{printJob.data.cashier || '-'}</span></div>
+              <div className="th-row th-small"><span>Tanggal</span><span>{printJob.data.date}</span></div>
+              <div className="th-cut"></div>
+              {printJob.data.items.map((item, idx) => (
+                <div key={idx} className="mb-1">
+                  <div className="th-row th-item"><span>{item.qty}x {item.name}</span><span>{formatRp(item.price * item.qty)}</span></div>
+                  {item.note && <p className="th-note">&gt; {item.note}</p>}
+                </div>
+              ))}
+              <div className="th-cut"></div>
+              <div className="th-row"><span>Subtotal</span><span>{formatRp(printJob.data.subtotal)}</span></div>
+              <div className="th-row"><span>Pajak</span><span>{formatRp(printJob.data.tax)}</span></div>
+              <div className="th-row"><span>Service</span><span>{formatRp(printJob.data.service)}</span></div>
+              <div className="th-row th-total"><span>TOTAL</span><span>{formatRp(printJob.data.total)}</span></div>
+              <div className="th-row th-small"><span>Metode</span><span>{printJob.data.method}</span></div>
+              <div className="th-cut"></div>
+              <div className="th-center">
+                <canvas ref={thermalQrRef}></canvas>
+                <p className="th-small">{printJob.data.no}</p>
+                <p className="th-badge">LUNAS</p>
+                <p className="th-small mt-1">{printJob.data.footer || store.footer || 'Terima kasih!'}</p>
               </div>
-              <p className="mt-4 border-t-2 border-dashed border-black pt-2 text-center text-xs">
-                Untuk koki — selesaikan sesuai urutan datang
-              </p>
-            </div>
+            </>
+          ) : (
+            <>
+              <div className="th-center">
+                <p className="th-title">RESEP DAPUR</p>
+                <p className="th-small">{printJob.data.storeName || store.name || 'Juragan Seblak'}</p>
+              </div>
+              <div className="th-cut"></div>
+              <div className="th-row th-bold"><span>No.</span><span>{printJob.data.no}</span></div>
+              <div className="th-row th-small"><span>Waktu</span><span>{printJob.data.date}</span></div>
+              {printJob.data.customer && <div className="th-row th-small"><span>Pelanggan</span><span>{printJob.data.customer}</span></div>}
+              {printJob.data.table && <div className="th-row th-small"><span>Meja</span><span>{printJob.data.table}</span></div>}
+              <div className="th-cut"></div>
+              {printJob.data.items.map((item, idx) => (
+                <div key={idx} className="mb-1.5">
+                  <p className="th-item" style={{ fontSize: '12pt' }}>{item.qty}x {item.name}</p>
+                  {item.note && <p className="th-note th-bold">&gt; {item.note}</p>}
+                </div>
+              ))}
+              <div className="th-cut"></div>
+              <p className="th-center th-small">Untuk koki — selesaikan sesuai urutan datang</p>
+            </>
           )}
         </div>
       )}

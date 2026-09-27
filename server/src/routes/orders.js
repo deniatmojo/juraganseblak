@@ -181,7 +181,10 @@ router.get('/', async (req, res, next) => {
       `SELECT o.id, o.order_no, o.channel, o.customer_name, o.table_no, o.subtotal,
               o.tax_amount, o.service_amount, o.discount, o.total, o.pay_method,
               o.paid_amount, o.status, o.void_reason, o.voided_at,
-              u.name AS cashier_name, o.created_at
+              u.name AS cashier_name, o.created_at,
+              (SELECT GROUP_CONCAT(CONCAT(oi.qty, 'x ', p.name) SEPARATOR ', ')
+                 FROM order_items oi JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id = o.id) AS items_preview
        FROM orders o LEFT JOIN users u ON u.id = o.cashier_id${where}
        ORDER BY o.created_at DESC LIMIT 500`, params
     );

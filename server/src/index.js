@@ -51,7 +51,9 @@ app.use('/api/categories', adminOnlyForWrites);
 app.use('/api/settings', adminOnlyForWrites);
 app.use('/api/stock', adminOnlyForWrites);
 app.use('/api/transactions', requireRole('owner'));
-app.use('/api/orders', (req, res, next) => (req.method === 'POST' ? next() : adminOnly(req, res, next)));
+// Daftar pesanan dibaca semua role (antrian dapur/kasir di POS); checkout (POST)
+// terbuka semua role; void dst. dijaga di dalam route.
+app.use('/api/orders', (req, res, next) => (req.method === 'GET' || req.method === 'POST' ? next() : adminOnly(req, res, next)));
 // Manajemen akun, data karyawan (termasuk atur jadwal), dan payroll:
 // khusus Super Admin (owner). Admin tidak boleh menyentuh menu Gaji/Karyawan.
 app.use('/api/users', requireRole('owner'));
