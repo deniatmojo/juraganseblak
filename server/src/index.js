@@ -19,6 +19,7 @@ import payrollRouter from './routes/payroll.js';
 import financeRouter from './routes/finance.js';
 import uploadRouter from './routes/upload.js';
 import paymentsRouter from './routes/payments.js';
+import onlineRouter from './routes/online.js';
 import { autoClockOut } from './routes/attendance.js';
 import { requireAuth, requireRole } from './auth.js';
 
@@ -38,6 +39,9 @@ app.use('/api/auth', authRouter);
 // Pembayaran: webhook gateway harus publik (tanpa login), endpoint lain
 // memakai requireAuth sendiri di dalam routernya.
 app.use('/api/payments', paymentsRouter);
+// Pesanan online: endpoint pelanggan (menu/buat pesanan/lacak) publik;
+// update tahap pesanan oleh kasir dijaga requireAuth di dalam routernya.
+app.use('/api/online', onlineRouter);
 app.use('/api', requireAuth);
 
 // Guard role — wajib dipasang SEBELUM router agar dieksekusi duluan.

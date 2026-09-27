@@ -51,9 +51,13 @@ export async function markOrderPaid(orderId, { provider = 'manual', ref = null, 
        VALUES ('income', 'penjualan', :total, :note, :ref, :by)`,
       { total: order.total, note: `Penjualan ${order.order_no}`, ref: order.id, by: confirmedBy }
     );
+    // Pesanan online yang lunas otomatis masuk antrian (progress 'queue');
+    // pesanan POS tidak memakai kolom progress.
     await conn.query(
       `UPDATE orders SET status = 'paid', paid_at = NOW(), payment_provider = :provider,
-        payment_ref = COALESCE(payment_ref, :ref), payment_confirmed_by = :by, paid_amount = total
+        payment_ref = COALESCE(payment_ref, :ref), payment_confirmed_by = :by, paid_amount = total,
+        progress = IF(channel = 'online', 'queue', progress),
+        progress_updated_at = IF(channel = 'online', NOW(), progress_updated_at)
        WHERE id = :id`,
       { provider, ref, by: confirmedBy, id: orderId }
     );

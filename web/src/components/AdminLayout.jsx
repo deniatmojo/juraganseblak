@@ -6,6 +6,7 @@ import { api } from '../api'
 const headerMeta = {
   '/erp': { title: 'Dashboard', subtitle: 'Ringkasan operasional Juragan Seblak hari ini' },
   '/erp/pos': { title: 'Kasir / POS', subtitle: 'Meja 07 · Dine-in' },
+  '/erp/pesanan-online': { title: 'Pesanan Online', subtitle: 'ACC pembayaran QRIS & pantau tahap pesanan' },
   '/erp/menu': { title: 'Manajemen Menu', subtitle: 'Kelola menu, harga, HPP & kategori' },
   '/erp/absensi': { title: 'Absensi', subtitle: 'Kehadiran karyawan hari ini' },
   '/erp/stock': { title: 'Stok Bahan Baku', subtitle: 'Pantau ketersediaan bahan dapur' },
@@ -33,6 +34,12 @@ const navItems = [
     label: 'Kasir / POS',
     roles: ['owner', 'admin', 'kasir'],
     icon: 'M3 10h18M3 6h18M4 6v12a1 1 0 001 1h14a1 1 0 001-1V6M9 14h6',
+  },
+  {
+    to: '/erp/pesanan-online',
+    label: 'Pesanan Online',
+    roles: ['owner', 'admin', 'kasir'],
+    icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 7M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z',
   },
   {
     to: '/erp/menu',

@@ -1,195 +1,287 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { api } from '../api'
+
+const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
 
 export default function Order() {
-  const [orderType, setOrderType] = useState('dinein')
-  const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({
-    nama: '',
-    noHp: '',
-    paket: '',
-    jumlahPax: 1,
-    tanggal: '',
-    jam: '',
-    alamat: '',
-    catatan: '',
-  })
+  const navigate = useNavigate()
+  const [orderType, setOrderType] = useState('pickup')
+  const [menu, setMenu] = useState([])
+  const [store, setStore] = useState(null)
+  const [cart, setCart] = useState({}) // { product_id: qty }
+  const [form, setForm] = useState({ nama: '', noHp: '', tanggal: '', jam: '', alamat: '', catatan: '' })
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([api.get('/online/menu'), api.get('/online/store')])
+      .then(([m, s]) => { setMenu(m); setStore(s) })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  // Kelompokkan menu per kategori untuk ditampilkan berurutan.
+  const grouped = useMemo(() => {
+    const map = new Map()
+    for (const item of menu) {
+      if (!map.has(item.category)) map.set(item.category, [])
+      map.get(item.category).push(item)
+    }
+    return [...map.entries()]
+  }, [menu])
 
   const isDineIn = orderType === 'dinein'
+  const isDelivery = orderType === 'delivery'
+
+  const cartItems = menu.filter((m) => cart[m.id] > 0).map((m) => ({ ...m, qty: cart[m.id] }))
+  const subtotal = cartItems.reduce((s, it) => s + it.price * it.qty, 0)
+  const taxRate = store?.tax_rate ?? 0
+  const serviceRate = store?.service_rate ?? 0
+  const tax = Math.round(subtotal * taxRate)
+  const service = Math.round(subtotal * serviceRate)
+  const total = subtotal + tax + service
+  const cartCount = cartItems.reduce((s, it) => s + it.qty, 0)
+
+  const changeQty = (id, delta) => {
+    setCart((prev) => {
+      const next = { ...prev }
+      const q = (next[id] || 0) + delta
+      if (q <= 0) delete next[id]
+      else next[id] = q
+      return next
+    })
+  }
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // TODO: kirim data pesanan ke backend ERP
-    setShowModal(true)
-  }
-
-  const closeModal = () => {
-    setShowModal(false)
-    setForm({ nama: '', noHp: '', paket: '', jumlahPax: 1, tanggal: '', jam: '', alamat: '', catatan: '' })
-    setOrderType('dinein')
+    if (cartItems.length === 0) {
+      setError('Pilih minimal satu menu dulu ya')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const order = await api.post('/online/orders', {
+        customer_name: form.nama,
+        customer_phone: form.noHp,
+        order_type: orderType,
+        items: cartItems.map((it) => ({ product_id: it.id, qty: it.qty })),
+        schedule_date: isDineIn ? form.tanggal : null,
+        schedule_time: isDineIn ? form.jam : null,
+        delivery_address: isDelivery ? form.alamat : null,
+        note: form.catatan,
+      })
+      // Simpan kode pelacakan supaya pelanggan bisa buka lagi tanpa menyalin.
+      try {
+        const saved = JSON.parse(localStorage.getItem('js_my_orders') || '[]')
+        saved.unshift({ order_no: order.order_no, code: order.track_code, at: Date.now() })
+        localStorage.setItem('js_my_orders', JSON.stringify(saved.slice(0, 20)))
+      } catch { /* storage penuh/diblokir — kode tetap ditampilkan */ }
+      navigate(`/track/${order.order_no}?code=${order.track_code}&baru=1`)
+    } catch (err) {
+      setError(err.message)
+      setSubmitting(false)
+    }
   }
 
   const inputCls = 'w-full border border-black/15 rounded-xl px-4 py-3 text-sm'
+  const typeTabs = [
+    { key: 'pickup', label: 'Ambil di Tempat' },
+    { key: 'dinein', label: 'Pre-Order Dine-In' },
+    { key: 'delivery', label: 'Order Delivery' },
+  ]
 
   return (
     <div className="bg-cream text-char antialiased min-h-screen">
-      {/* Simple top bar */}
-      <header className="bg-char">
-        <div className="max-w-3xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
+      <header className="bg-char sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
           <Link to="/" className="font-display text-2xl text-cream tracking-wide">
-            BARA<span className="text-chili">.</span>PEDAS
+            JURAGAN <span className="text-chili">SEBLAK</span>
           </Link>
-          <Link to="/" className="text-cream/70 hover:text-ember text-sm font-semibold flex items-center gap-1.5 transition-colors">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            Kembali
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link to="/track" className="text-cream/70 hover:text-ember text-sm font-semibold transition-colors">
+              Lacak Pesanan
+            </Link>
+            <Link to="/" className="text-cream/70 hover:text-ember text-sm font-semibold flex items-center gap-1.5 transition-colors">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+              Kembali
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="py-12 md:py-20 px-5">
-        <div className="max-w-xl mx-auto">
+      <main className="py-10 md:py-14 px-5">
+        <div className="max-w-5xl mx-auto">
           <div className="text-center mb-9">
-            <p className="text-chili font-bold text-sm mb-2">Form Pemesanan</p>
-            <h1 className="font-display text-4xl md:text-5xl uppercase leading-tight">Pesan Sekarang,<br />Makan Sepuasnya</h1>
-            <p className="mt-3 text-char/60 text-sm">Isi data di bawah, tim kami akan konfirmasi lewat WhatsApp dalam beberapa menit.</p>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex bg-white rounded-full p-1.5 border border-black/10 mb-8" role="tablist" aria-label="Tipe pesanan">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={isDineIn}
-              onClick={() => setOrderType('dinein')}
-              className={`flex-1 py-3 rounded-full font-bold text-sm transition-colors ${isDineIn ? 'bg-chili text-white' : 'text-char/60'}`}
-            >
-              Pre-Order Dine-In
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!isDineIn}
-              onClick={() => setOrderType('delivery')}
-              className={`flex-1 py-3 rounded-full font-bold text-sm transition-colors ${!isDineIn ? 'bg-chili text-white' : 'text-char/60'}`}
-            >
-              Order Delivery
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-black/5 shadow-sm p-6 md:p-8 space-y-5" noValidate>
-            <div>
-              <label htmlFor="nama" className="block text-sm font-bold mb-1.5">Nama Lengkap</label>
-              <input type="text" id="nama" name="nama" required placeholder="Nama kamu" value={form.nama} onChange={handleChange} className={inputCls} />
-            </div>
-
-            <div>
-              <label htmlFor="noHp" className="block text-sm font-bold mb-1.5">Nomor HP / WhatsApp</label>
-              <input type="tel" id="noHp" name="noHp" required placeholder="08xx-xxxx-xxxx" value={form.noHp} onChange={handleChange} className={inputCls} />
-            </div>
-
-            <div>
-              <label htmlFor="paket" className="block text-sm font-bold mb-1.5">Pilihan Paket AYCE</label>
-              <select id="paket" name="paket" required value={form.paket} onChange={handleChange} className={`${inputCls} bg-white`}>
-                <option value="" disabled>Pilih paket</option>
-                <option value="reguler">Paket Reguler — Rp 75K/pax</option>
-                <option value="pedas">Paket Pedas Jagoan — Rp 95K/pax</option>
-                <option value="extreme">Paket Extreme Level 10 — Rp 115K/pax</option>
-                <option value="keluarga">Paket Keluarga (4 pax) — Rp 340K</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="jumlahPax" className="block text-sm font-bold mb-1.5">Jumlah Orang</label>
-              <input type="number" id="jumlahPax" name="jumlahPax" min="1" value={form.jumlahPax} onChange={handleChange} required className={inputCls} />
-            </div>
-
-            {/* Dine-in only */}
-            {isDineIn && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="tanggal" className="block text-sm font-bold mb-1.5">Tanggal</label>
-                    <input type="date" id="tanggal" name="tanggal" required value={form.tanggal} onChange={handleChange} className={inputCls} />
-                  </div>
-                  <div>
-                    <label htmlFor="jam" className="block text-sm font-bold mb-1.5">Jam</label>
-                    <input type="time" id="jam" name="jam" required value={form.jam} onChange={handleChange} className={inputCls} />
-                  </div>
-                </div>
-                <p className="text-xs text-char/50">Meja akan dipegang selama 15 menit dari jam reservasi.</p>
-              </div>
-            )}
-
-            {/* Delivery only */}
-            {!isDineIn && (
-              <div className="space-y-5">
-                <div>
-                  <label htmlFor="alamat" className="block text-sm font-bold mb-1.5">Alamat Lengkap</label>
-                  <textarea
-                    id="alamat"
-                    name="alamat"
-                    rows="3"
-                    required
-                    placeholder="Nama jalan, nomor rumah, RT/RW, kecamatan, patokan"
-                    value={form.alamat}
-                    onChange={handleChange}
-                    className={`${inputCls} resize-none`}
-                  ></textarea>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="catatan" className="block text-sm font-bold mb-1.5">
-                Catatan Tambahan <span className="font-normal text-char/40">(opsional)</span>
-              </label>
-              <textarea
-                id="catatan"
-                name="catatan"
-                rows="2"
-                placeholder="Contoh: kurangi level pedas untuk 1 pax"
-                value={form.catatan}
-                onChange={handleChange}
-                className={`${inputCls} resize-none`}
-              ></textarea>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full bg-chili hover:bg-chili-dark text-white font-bold py-4 rounded-full transition-colors text-sm md:text-base"
-            >
-              Konfirmasi Pesanan
-            </button>
-
-            <p className="text-center text-xs text-char/40">
-              Dengan menekan tombol di atas, kamu setuju dihubungi tim Bara.Pedas via WhatsApp untuk konfirmasi.
+            <p className="text-chili font-bold text-sm mb-2">Pesan Online</p>
+            <h1 className="font-display text-4xl md:text-5xl uppercase leading-tight">Pesan Sekarang,<br />Bayar via QRIS</h1>
+            <p className="mt-3 text-char/60 text-sm max-w-xl mx-auto">
+              Pilih menu, bayar dengan QRIS, lalu pantau pesananmu sampai selesai — semuanya online.
             </p>
-          </form>
+          </div>
+
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold text-center">{error}</div>
+          )}
+
+          {loading ? (
+            <p className="text-center text-char/50 py-16">Memuat menu…</p>
+          ) : (
+            <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
+              {/* PILIH MENU */}
+              <div className="space-y-8">
+                <div className="flex flex-wrap gap-2">
+                  {grouped.map(([cat]) => (
+                    <a key={cat} href={`#cat-${cat.replace(/\W+/g, '-')}`} className="bg-white border border-black/10 rounded-full px-4 py-2 text-xs font-bold hover:border-chili transition-colors">
+                      {cat}
+                    </a>
+                  ))}
+                </div>
+
+                {grouped.map(([cat, items]) => (
+                  <section key={cat} id={`cat-${cat.replace(/\W+/g, '-')}`}>
+                    <h2 className="font-display text-2xl uppercase mb-4">{cat}</h2>
+                    <div className="space-y-3">
+                      {items.map((item) => {
+                        const qty = cart[item.id] || 0
+                        return (
+                          <div key={item.id} className={`bg-white rounded-2xl border p-4 flex items-center gap-4 transition-colors ${qty > 0 ? 'border-chili' : 'border-black/5'}`}>
+                            {item.image_url && (
+                              <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover bg-cream shrink-0" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm leading-snug">{item.name}</p>
+                              <p className="text-chili font-display text-lg mt-0.5">{rupiah(item.price)}</p>
+                            </div>
+                            {qty === 0 ? (
+                              <button onClick={() => changeQty(item.id, 1)} aria-label={`Tambah ${item.name}`} className="w-9 h-9 rounded-full bg-chili text-white font-bold text-lg grid place-items-center hover:bg-chili-dark transition-colors shrink-0">+</button>
+                            ) : (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button onClick={() => changeQty(item.id, -1)} aria-label={`Kurangi ${item.name}`} className="w-8 h-8 rounded-full bg-cream border border-black/10 font-bold grid place-items-center hover:border-chili transition-colors">−</button>
+                                <span className="w-6 text-center font-bold tabular-nums">{qty}</span>
+                                <button onClick={() => changeQty(item.id, 1)} aria-label={`Tambah ${item.name}`} className="w-8 h-8 rounded-full bg-chili text-white font-bold grid place-items-center hover:bg-chili-dark transition-colors">+</button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+
+              {/* KERANJANG + FORM */}
+              <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-black/5 shadow-sm p-6 space-y-5 lg:sticky lg:top-24" noValidate>
+                <div>
+                  <p className="font-display text-xl uppercase mb-3">Pesananmu</p>
+                  {cartItems.length === 0 ? (
+                    <p className="text-sm text-char/40 py-3">Belum ada menu dipilih. Yuk pilih dari daftar di samping 👈</p>
+                  ) : (
+                    <ul className="space-y-2 text-sm">
+                      {cartItems.map((it) => (
+                        <li key={it.id} className="flex justify-between gap-3">
+                          <span className="truncate">{it.qty}× {it.name}</span>
+                          <span className="font-semibold shrink-0">{rupiah(it.price * it.qty)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {(taxRate > 0 || serviceRate > 0) && cartItems.length > 0 && (
+                  <div className="space-y-1 text-sm text-char/60 border-t border-black/5 pt-4">
+                    <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(subtotal)}</span></div>
+                    {taxRate > 0 && <div className="flex justify-between"><span>Pajak {Math.round(taxRate * 100)}%</span><span>{rupiah(tax)}</span></div>}
+                    {serviceRate > 0 && <div className="flex justify-between"><span>Service {Math.round(serviceRate * 100)}%</span><span>{rupiah(service)}</span></div>}
+                  </div>
+                )}
+                {cartItems.length > 0 && (
+                  <div className="flex justify-between font-bold border-t border-black/5 pt-4">
+                    <span>Total</span>
+                    <span className="text-chili">{rupiah(total)}</span>
+                  </div>
+                )}
+
+                <div className="border-t border-black/5 pt-5 space-y-5">
+                  <p className="font-bold text-sm">Data Pemesan</p>
+
+                  <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Tipe pesanan">
+                    {typeTabs.map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={orderType === t.key}
+                        onClick={() => setOrderType(t.key)}
+                        className={`py-2.5 px-1 rounded-xl font-bold text-[11px] leading-tight transition-colors border ${orderType === t.key ? 'bg-chili text-white border-chili' : 'bg-white text-char/60 border-black/10'}`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <label htmlFor="nama" className="block text-sm font-bold mb-1.5">Nama Lengkap</label>
+                    <input type="text" id="nama" name="nama" required placeholder="Nama kamu" value={form.nama} onChange={handleChange} className={inputCls} />
+                  </div>
+
+                  <div>
+                    <label htmlFor="noHp" className="block text-sm font-bold mb-1.5">Nomor HP / WhatsApp</label>
+                    <input type="tel" id="noHp" name="noHp" required placeholder="08xx-xxxx-xxxx" value={form.noHp} onChange={handleChange} className={inputCls} />
+                  </div>
+
+                  {isDineIn && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="tanggal" className="block text-sm font-bold mb-1.5">Tanggal</label>
+                        <input type="date" id="tanggal" name="tanggal" required value={form.tanggal} onChange={handleChange} className={inputCls} />
+                      </div>
+                      <div>
+                        <label htmlFor="jam" className="block text-sm font-bold mb-1.5">Jam</label>
+                        <input type="time" id="jam" name="jam" required value={form.jam} onChange={handleChange} className={inputCls} />
+                      </div>
+                    </div>
+                  )}
+
+                  {isDelivery && (
+                    <div>
+                      <label htmlFor="alamat" className="block text-sm font-bold mb-1.5">Alamat Lengkap</label>
+                      <textarea id="alamat" name="alamat" rows="3" required placeholder="Nama jalan, nomor rumah, RT/RW, kecamatan, patokan" value={form.alamat} onChange={handleChange} className={`${inputCls} resize-none`}></textarea>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="catatan" className="block text-sm font-bold mb-1.5">
+                      Catatan Tambahan <span className="font-normal text-char/40">(opsional)</span>
+                    </label>
+                    <textarea id="catatan" name="catatan" rows="2" placeholder="Contoh: kurangi level pedas untuk 1 pax" value={form.catatan} onChange={handleChange} className={`${inputCls} resize-none`}></textarea>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-chili hover:bg-chili-dark disabled:opacity-60 text-white font-bold py-4 rounded-full transition-colors text-sm md:text-base"
+                  >
+                    {submitting ? 'Memproses…' : 'Buat Pesanan & Bayar via QRIS'}
+                  </button>
+
+                  <p className="text-center text-xs text-char/40">
+                    Setelah pesanan dibuat, kamu akan scan QRIS statis kami lalu kasir meng-ACC pembayaranmu.
+                  </p>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       </main>
-
-      {/* Success modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-char/70 backdrop-blur-sm px-5">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-8 text-center">
-            <div className="w-14 h-14 rounded-full bg-chili/10 grid place-items-center mx-auto mb-5">
-              <svg className="w-7 h-7 text-chili" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <h2 className="font-display text-2xl uppercase mb-2">Pesanan Diterima</h2>
-            <p className="text-char/60 text-sm mb-6">
-              {isDineIn
-                ? 'Reservasi dine-in kamu sudah kami catat. Tim kami akan konfirmasi jadwal lewat WhatsApp.'
-                : 'Pesanan delivery kamu sudah kami catat. Tim kami akan konfirmasi alamat & estimasi antar lewat WhatsApp.'}
-            </p>
-            <button onClick={closeModal} className="w-full bg-char text-white font-bold py-3 rounded-full">Tutup</button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

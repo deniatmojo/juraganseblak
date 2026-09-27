@@ -24,7 +24,7 @@ async function getSettings() {
 // Nomor pesanan: JS-YYYYMMDD-NNNN (urut per hari, tanggal WIB eksplisit —
 // mesin server produksi berjalan UTC, agar tidak mundur sehari antara
 // 00:00–07:00 WIB)
-async function nextOrderNo(conn) {
+export async function nextOrderNo(conn) {
   const today = dateCompactWib();
   const prefix = `JS-${today}-`;
   const [[row]] = await conn.query(
@@ -181,6 +181,8 @@ router.get('/', async (req, res, next) => {
       `SELECT o.id, o.order_no, o.channel, o.customer_name, o.table_no, o.subtotal,
               o.tax_amount, o.service_amount, o.discount, o.total, o.pay_method,
               o.paid_amount, o.status, o.void_reason, o.voided_at,
+              o.customer_phone, o.order_type, o.schedule_at, o.delivery_address,
+              o.customer_note, o.progress, o.progress_updated_at,
               u.name AS cashier_name, o.created_at,
               (SELECT GROUP_CONCAT(CONCAT(oi.qty, 'x ', p.name) SEPARATOR ', ')
                  FROM order_items oi JOIN products p ON p.id = oi.product_id

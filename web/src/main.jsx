@@ -3,12 +3,14 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Landing from './pages/Landing.jsx'
 import Order from './pages/Order.jsx'
+import Track from './pages/Track.jsx'
 import Login from './pages/Login.jsx'
 import Download from './pages/Download.jsx'
 import AdminLayout from './components/AdminLayout.jsx'
 import AdminDashboard from './pages/admin/Dashboard.jsx'
 import Pos from './pages/admin/Pos.jsx'
 import Menu from './pages/admin/Menu.jsx'
+import PesananOnline from './pages/admin/PesananOnline.jsx'
 import Absensi from './pages/admin/Absensi.jsx'
 import Stock from './pages/admin/Stock.jsx'
 import Pembayaran from './pages/admin/Pembayaran.jsx'
@@ -29,6 +31,8 @@ createRoot(document.getElementById('root')).render(
         {/* Website publik */}
         <Route path="/" element={<Landing />} />
         <Route path="/order" element={<Order />} />
+        <Route path="/track" element={<Track />} />
+        <Route path="/track/:orderNo" element={<Track />} />
         <Route path="/login" element={<Login />} />
         <Route path="/download" element={<Download />} />
 
@@ -36,6 +40,7 @@ createRoot(document.getElementById('root')).render(
         <Route path="/erp" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="pos" element={<Pos />} />
+          <Route path="pesanan-online" element={<PesananOnline />} />
           <Route path="menu" element={<Menu />} />
           <Route path="absensi" element={<Absensi />} />
           <Route path="stock" element={<Stock />} />
