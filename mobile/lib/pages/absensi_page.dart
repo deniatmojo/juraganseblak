@@ -21,6 +21,11 @@ class _AbsensiPageState extends State<AbsensiPage> {
   bool busy = false;
   String? error;
 
+  // Rekap rentang (owner/admin) — GET /attendance/recap
+  String recapPreset = 'week';
+  List<Map<String, dynamic>> recap = [];
+  bool recapLoading = false;
+
   String get _today {
     final n = DateTime.now();
     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
@@ -47,6 +52,44 @@ class _AbsensiPageState extends State<AbsensiPage> {
       }
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+    _loadRecap();
+  }
+
+  String _dayKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Future<void> _loadRecap() async {
+    if (!widget.user.isAdmin) return;
+    setState(() => recapLoading = true);
+    final now = DateTime.now();
+    String from;
+    switch (recapPreset) {
+      case 'today':
+        from = _dayKey(now);
+        break;
+      case 'month':
+        from = _dayKey(DateTime(now.year, now.month, 1));
+        break;
+      case 'lastmonth':
+        from = _dayKey(DateTime(now.year, now.month - 1, 1));
+        break;
+      default:
+        from = _dayKey(now.subtract(const Duration(days: 6)));
+    }
+    try {
+      final data =
+          await api.get('/attendance/recap?from=$from&to=${_dayKey(now)}');
+      if (mounted) {
+        final m = Map<String, dynamic>.from(data as Map);
+        setState(() => recap = (m['employees'] as List? ?? [])
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .toList());
+      }
+    } catch (_) {
+      // rekap gagal diamkan — bagian info, bukan kritikal
+    } finally {
+      if (mounted) setState(() => recapLoading = false);
     }
   }
 
@@ -332,6 +375,88 @@ class _AbsensiPageState extends State<AbsensiPage> {
                     value: '$alpa',
                     label: 'Alpa')),
           ]),
+          if (widget.user.isAdmin) ...[
+            const SizedBox(height: 20),
+            SectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Rekap Absensi',
+                          style: AppText.body(
+                              size: 15, weight: FontWeight.w700)),
+                      if (recapLoading)
+                        const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final p in [
+                        ('today', 'Hari Ini'),
+                        ('week', '7 Hari'),
+                        ('month', 'Bulan Ini'),
+                        ('lastmonth', 'Bulan Lalu'),
+                      ])
+                        ChoiceChip(
+                          label: Text(p.$2),
+                          selected: recapPreset == p.$1,
+                          showCheckmark: false,
+                          selectedColor: AppColors.char,
+                          labelStyle: AppText.body(
+                              size: 10,
+                              weight: FontWeight.w700,
+                              color: recapPreset == p.$1
+                                  ? Colors.white
+                                  : Colors.black54),
+                          onSelected: (_) {
+                            setState(() => recapPreset = p.$1);
+                            _loadRecap();
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (final r in recap)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${r['name']}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.body(
+                                        size: 12,
+                                        weight: FontWeight.w700)),
+                                Text(
+                                    'H ${r['hadir']} · T ${r['terlambat']} · Iz ${r['izin']} · Sa ${r['sakit']} · A ${r['alpa']}',
+                                    style: AppText.body(
+                                        size: 10, color: Colors.black45)),
+                              ]),
+                        ),
+                        StatusChip.ok('${r['tercatat']} hari'),
+                      ]),
+                    ),
+                  if (recap.isEmpty && !recapLoading)
+                    Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text('Belum ada data rekap.',
+                            style: AppText.body(
+                                size: 11, color: Colors.black26))),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           SectionCard(
             padding: EdgeInsets.zero,
