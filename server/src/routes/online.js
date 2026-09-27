@@ -52,6 +52,67 @@ router.get('/menu', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/online/tables — daftar meja dine-in (publik: dipakai halaman
+// /order?meja=ID untuk menampilkan label meja & admin untuk kelola + QR).
+router.get('/tables', async (_req, res, next) => {
+  try {
+    res.json(await pool.query('SELECT id, label, is_active FROM dining_tables ORDER BY id').then(([rows]) => rows));
+  } catch (e) { next(e); }
+});
+
+// GET /api/online/tables/:id — validasi satu meja (publik, dari QR di meja).
+router.get('/tables/:id', async (req, res, next) => {
+  try {
+    const [[row]] = await pool.query('SELECT id, label, is_active FROM dining_tables WHERE id = :id', { id: Number(req.params.id) });
+    if (!row || !row.is_active) return res.status(404).json({ error: 'Meja tidak ditemukan' });
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+// POST /api/online/tables — tambah meja (owner/admin).
+router.post('/tables', requireAuth, requireRole('owner', 'admin'), async (req, res, next) => {
+  try {
+    const label = String(req.body?.label || '').trim();
+    if (!label) return res.status(400).json({ error: 'Nama/label meja wajib diisi' });
+    const [[dup]] = await pool.query('SELECT id FROM dining_tables WHERE label = :l', { l: label });
+    if (dup) return res.status(409).json({ error: `Meja "${label}" sudah ada` });
+    const [result] = await pool.query('INSERT INTO dining_tables (label) VALUES (:l)', { l: label });
+    res.status(201).json({ id: result.insertId, label, is_active: 1 });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/online/tables/:id — ubah label / aktifkan-nonaktifkan meja.
+router.patch('/tables/:id', requireAuth, requireRole('owner', 'admin'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const [[row]] = await pool.query('SELECT id FROM dining_tables WHERE id = :id', { id });
+    if (!row) return res.status(404).json({ error: 'Meja tidak ditemukan' });
+    const updates = [];
+    const params = { id };
+    if (req.body?.label != null) {
+      const label = String(req.body.label).trim();
+      if (!label) return res.status(400).json({ error: 'Nama/label meja tidak boleh kosong' });
+      updates.push('label = :label');
+      params.label = label;
+    }
+    if (req.body?.is_active != null) {
+      updates.push('is_active = :act');
+      params.act = req.body.is_active ? 1 : 0;
+    }
+    if (updates.length) await pool.query(`UPDATE dining_tables SET ${updates.join(', ')} WHERE id = :id`, params);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/online/tables/:id — hapus meja (QR lama di meja jadi tidak valid).
+router.delete('/tables/:id', requireAuth, requireRole('owner', 'admin'), async (req, res, next) => {
+  try {
+    const [result] = await pool.query('DELETE FROM dining_tables WHERE id = :id', { id: Number(req.params.id) });
+    if (!result.affectedRows) return res.status(404).json({ error: 'Meja tidak ditemukan' });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // POST /api/online/orders — pesanan baru dari pelanggan (tanpa login).
 // Body: { customer_name, customer_phone, order_type, items:[{product_id, qty, note?}],
 //         schedule_date?, schedule_time?, delivery_address?, note? }
@@ -62,29 +123,46 @@ router.post('/orders', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     const {
-      customer_name, customer_phone, order_type = 'pickup',
+      customer_name, customer_phone, order_type,
       items, schedule_date = null, schedule_time = null,
-      delivery_address = null, note = null,
+      delivery_address = null, note = null, table_id = null,
     } = req.body || {};
 
-    if (!customer_name || !String(customer_name).trim()) {
+    // Pesanan dari QR meja: meja adalah identitasnya — nama/HP opsional,
+    // tipe paksa dine-in, table_no terisi otomatis (pelayan antar ke meja),
+    // pembayaran langsung di meja lalu kasir meng-ACC.
+    let table = null;
+    if (table_id != null) {
+      const [[t]] = await conn.query('SELECT id, label FROM dining_tables WHERE id = :id AND is_active = 1', { id: Number(table_id) });
+      if (!t) {
+        return res.status(400).json({ error: 'QR meja tidak valid' });
+      }
+      table = t;
+    }
+
+    let ordererName = customer_name ? String(customer_name).trim() : null;
+    if (!table && !ordererName) {
       return res.status(400).json({ error: 'Nama wajib diisi' });
     }
+    if (table) {
+      ordererName = ordererName || `Tamu Meja ${table.label}`;
+    }
     const phone = String(customer_phone || '').replace(/[^\d+]/g, '');
-    if (phone.replace(/\D/g, '').length < 8) {
+    if (!table && phone.replace(/\D/g, '').length < 8) {
       return res.status(400).json({ error: 'Nomor HP/WhatsApp tidak valid' });
     }
-    if (!['dinein', 'delivery', 'pickup'].includes(order_type)) {
+    const effectiveType = table ? 'dinein' : order_type;
+    if (!['dinein', 'delivery', 'pickup'].includes(effectiveType)) {
       return res.status(400).json({ error: 'Tipe pesanan tidak valid' });
     }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Keranjang kosong' });
     }
-    if (order_type === 'delivery' && !delivery_address?.trim()) {
+    if (effectiveType === 'delivery' && !delivery_address?.trim()) {
       return res.status(400).json({ error: 'Alamat pengiriman wajib diisi' });
     }
     let scheduleAt = null;
-    if (order_type === 'dinein') {
+    if (effectiveType === 'dinein' && !table) {
       if (!schedule_date || !schedule_time) {
         return res.status(400).json({ error: 'Tanggal & jam kedatangan wajib diisi' });
       }
@@ -124,11 +202,12 @@ router.post('/orders', async (req, res, next) => {
         schedule_at, table_no, delivery_address, customer_note, subtotal,
         tax_amount, service_amount, total, pay_method, status, track_code)
        VALUES (:order_no, 'online', :customer, :phone, :order_type,
-        :schedule_at, NULL, :address, :note, :subtotal,
+        :schedule_at, :table_no, :address, :note, :subtotal,
         :tax, :service, :total, 'qris', 'pending', :track_code)`,
       {
-        order_no: orderNo, customer: String(customer_name).trim(), phone,
-        order_type, schedule_at: scheduleAt, address: delivery_address?.trim() || null,
+        order_no: orderNo, customer: ordererName, phone: phone || null,
+        order_type: effectiveType, schedule_at: scheduleAt, table_no: table?.label ?? null,
+        address: delivery_address?.trim() || null,
         note: note?.trim() || null, subtotal, tax, service, total, track_code: trackCode,
       }
     );
@@ -150,8 +229,9 @@ router.post('/orders', async (req, res, next) => {
       id: orderId,
       order_no: orderNo,
       track_code: trackCode,
-      order_type,
-      customer_name: String(customer_name).trim(),
+      order_type: effectiveType,
+      table_no: table?.label ?? null,
+      customer_name,
       subtotal, tax_amount: tax, service_amount: service, total,
       status: 'pending',
       store_name: settings.store_name,

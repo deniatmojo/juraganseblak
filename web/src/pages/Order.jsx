@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
 const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
 
 export default function Order() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Mode QR meja: /order?meja=ID dari QR yang ditempel di meja — pembeli
+  // duduk, scan, pesan; meja jadi identitas pesanan (pelayan antar ke meja),
+  // pembayaran langsung di meja lalu kasir meng-ACC.
+  const mejaId = searchParams.get('meja')
+  const [table, setTable] = useState(null)
+  const [tableError, setTableError] = useState('')
   const [orderType, setOrderType] = useState('pickup')
   const [menu, setMenu] = useState([])
   const [store, setStore] = useState(null)
@@ -14,6 +21,15 @@ export default function Order() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const tableMode = Boolean(mejaId)
+
+  useEffect(() => {
+    if (!mejaId) return
+    api.get(`/online/tables/${encodeURIComponent(mejaId)}`)
+      .then(setTable)
+      .catch((e) => setTableError(e.message))
+  }, [mejaId])
 
   useEffect(() => {
     setLoading(true)
@@ -70,13 +86,14 @@ export default function Order() {
     setError('')
     try {
       const order = await api.post('/online/orders', {
-        customer_name: form.nama,
-        customer_phone: form.noHp,
-        order_type: orderType,
+        customer_name: form.nama || null,
+        customer_phone: tableMode ? null : form.noHp,
+        order_type: tableMode ? null : orderType,
+        table_id: tableMode ? Number(mejaId) : null,
         items: cartItems.map((it) => ({ product_id: it.id, qty: it.qty })),
-        schedule_date: isDineIn ? form.tanggal : null,
-        schedule_time: isDineIn ? form.jam : null,
-        delivery_address: isDelivery ? form.alamat : null,
+        schedule_date: !tableMode && isDineIn ? form.tanggal : null,
+        schedule_time: !tableMode && isDineIn ? form.jam : null,
+        delivery_address: !tableMode && isDelivery ? form.alamat : null,
         note: form.catatan,
       })
       // Simpan kode pelacakan supaya pelanggan bisa buka lagi tanpa menyalin.
@@ -120,13 +137,34 @@ export default function Order() {
 
       <main className="py-10 md:py-14 px-5">
         <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-9">
-            <p className="text-chili font-bold text-sm mb-2">Pesan Online</p>
-            <h1 className="font-display text-4xl md:text-5xl uppercase leading-tight">Pesan Sekarang,<br />Bayar via QRIS</h1>
+          {tableError ? (
+            <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-10 text-center">
+              <p className="font-display text-3xl uppercase mb-2">QR Tidak Valid</p>
+              <p className="text-char/60 text-sm">QR meja ini tidak dikenal atau meja sudah dinonaktifkan. Silakan hubungi pelayan.</p>
+            </div>
+          ) : (
+          <>
+          <div className="text-center mb-6">
+            <p className="text-chili font-bold text-sm mb-2">{tableMode ? 'Pesan dari Meja' : 'Pesan Online'}</p>
+            <h1 className="font-display text-4xl md:text-5xl uppercase leading-tight">
+              {tableMode ? <>Meja {table?.label ?? '…'}</> : <>Pesan Sekarang,<br />Bayar via QRIS</>}
+            </h1>
             <p className="mt-3 text-char/60 text-sm max-w-xl mx-auto">
-              Pilih menu, bayar dengan QRIS, lalu pantau pesananmu sampai selesai — semuanya online.
+              {tableMode
+                ? 'Pilih menu, kirim pesanan, lalu bayar langsung di meja — kasir kami verifikasi. Pantau statusnya di HP-mu.'
+                : 'Pilih menu, bayar dengan QRIS, lalu pantau pesananmu sampai selesai — semuanya online.'}
             </p>
           </div>
+
+          {tableMode && table && (
+            <div className="max-w-xl mx-auto mb-6 bg-chili/10 border border-chili/30 rounded-2xl px-5 py-4 flex items-center gap-4">
+              <span className="text-3xl">🪑</span>
+              <p className="text-sm text-char/80">
+                Kamu memesan untuk <strong>Meja {table.label}</strong>. Pelayan akan mengantar pesanan ke meja ini —
+                tunjukkan halaman ini ke pelayan bila perlu.
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold text-center">{error}</div>
@@ -213,32 +251,38 @@ export default function Order() {
                 <div className="border-t border-black/5 pt-5 space-y-5">
                   <p className="font-bold text-sm">Data Pemesan</p>
 
-                  <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Tipe pesanan">
-                    {typeTabs.map((t) => (
-                      <button
-                        key={t.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={orderType === t.key}
-                        onClick={() => setOrderType(t.key)}
-                        className={`py-2.5 px-1 rounded-xl font-bold text-[11px] leading-tight transition-colors border ${orderType === t.key ? 'bg-chili text-white border-chili' : 'bg-white text-char/60 border-black/10'}`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
+                  {!tableMode && (
+                    <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Tipe pesanan">
+                      {typeTabs.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={orderType === t.key}
+                          onClick={() => setOrderType(t.key)}
+                          className={`py-2.5 px-1 rounded-xl font-bold text-[11px] leading-tight transition-colors border ${orderType === t.key ? 'bg-chili text-white border-chili' : 'bg-white text-char/60 border-black/10'}`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   <div>
-                    <label htmlFor="nama" className="block text-sm font-bold mb-1.5">Nama Lengkap</label>
-                    <input type="text" id="nama" name="nama" required placeholder="Nama kamu" value={form.nama} onChange={handleChange} className={inputCls} />
+                    <label htmlFor="nama" className="block text-sm font-bold mb-1.5">
+                      Nama Lengkap {tableMode && <span className="font-normal text-char/40">(opsional)</span>}
+                    </label>
+                    <input type="text" id="nama" name="nama" required={!tableMode} placeholder={tableMode ? 'Nama kamu — boleh dikosongkan' : 'Nama kamu'} value={form.nama} onChange={handleChange} className={inputCls} />
                   </div>
 
-                  <div>
-                    <label htmlFor="noHp" className="block text-sm font-bold mb-1.5">Nomor HP / WhatsApp</label>
-                    <input type="tel" id="noHp" name="noHp" required placeholder="08xx-xxxx-xxxx" value={form.noHp} onChange={handleChange} className={inputCls} />
-                  </div>
+                  {!tableMode && (
+                    <div>
+                      <label htmlFor="noHp" className="block text-sm font-bold mb-1.5">Nomor HP / WhatsApp</label>
+                      <input type="tel" id="noHp" name="noHp" required placeholder="08xx-xxxx-xxxx" value={form.noHp} onChange={handleChange} className={inputCls} />
+                    </div>
+                  )}
 
-                  {isDineIn && (
+                  {!tableMode && isDineIn && (
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label htmlFor="tanggal" className="block text-sm font-bold mb-1.5">Tanggal</label>
@@ -251,7 +295,7 @@ export default function Order() {
                     </div>
                   )}
 
-                  {isDelivery && (
+                  {!tableMode && isDelivery && (
                     <div>
                       <label htmlFor="alamat" className="block text-sm font-bold mb-1.5">Alamat Lengkap</label>
                       <textarea id="alamat" name="alamat" rows="3" required placeholder="Nama jalan, nomor rumah, RT/RW, kecamatan, patokan" value={form.alamat} onChange={handleChange} className={`${inputCls} resize-none`}></textarea>
@@ -270,15 +314,19 @@ export default function Order() {
                     disabled={submitting}
                     className="w-full bg-chili hover:bg-chili-dark disabled:opacity-60 text-white font-bold py-4 rounded-full transition-colors text-sm md:text-base"
                   >
-                    {submitting ? 'Memproses…' : 'Buat Pesanan & Bayar via QRIS'}
+                    {submitting ? 'Memproses…' : tableMode ? 'Kirim Pesanan ke Dapur' : 'Buat Pesanan & Bayar via QRIS'}
                   </button>
 
                   <p className="text-center text-xs text-char/40">
-                    Setelah pesanan dibuat, kamu akan scan QRIS statis kami lalu kasir meng-ACC pembayaranmu.
+                    {tableMode
+                      ? 'Pesanan masuk ke dapur setelah kasir memverifikasi pembayaranmu di meja.'
+                      : 'Setelah pesanan dibuat, kamu akan scan QRIS statis kami lalu kasir meng-ACC pembayaranmu.'}
                   </p>
                 </div>
               </form>
             </div>
+          )}
+          </>
           )}
         </div>
       </main>

@@ -83,7 +83,7 @@ export default function Track() {
   // Chat WA langsung ke admin dengan nomor & nama pesanan otomatis terlampir.
   const waLink = order && store?.store_phone
     ? `https://wa.me/${waNumber(store.store_phone)}?text=${encodeURIComponent(
-        `Halo Admin ${store.store_name || 'Juragan Seblak'}, saya mau bertanya tentang pesanan saya.\n\nNo. Pesanan: ${order.order_no}\nNama: ${order.customer_name}\nTotal: ${rupiah(order.total)}\nStatus: ${isPending ? 'Menunggu ACC pembayaran' : isCanceled ? 'Dibatalkan' : (steps[currentIdx]?.label || 'Lunas')}\n\n`
+        `Halo Admin ${store.store_name || 'Juragan Seblak'}, saya mau bertanya tentang pesanan saya.\n\nNo. Pesanan: ${order.order_no}\nNama: ${order.customer_name}${order.table_no ? `\nMeja: ${order.table_no}` : ''}\nTotal: ${rupiah(order.total)}\nStatus: ${isPending ? 'Menunggu ACC pembayaran' : isCanceled ? 'Dibatalkan' : (steps[currentIdx]?.label || 'Lunas')}\n\n`
       )}`
     : null
 
@@ -140,7 +140,12 @@ export default function Track() {
                   <div>
                     <p className="text-cream/50 text-xs font-bold uppercase tracking-widest">No. Pesanan</p>
                     <p className="font-display text-2xl md:text-3xl mt-1">{order.order_no}</p>
-                    <p className="text-cream/60 text-sm mt-1">{order.customer_name} · {order.order_type === 'dinein' ? 'Dine-In' : order.order_type === 'delivery' ? 'Delivery' : 'Ambil di Tempat'}</p>
+                    <p className="text-cream/60 text-sm mt-1">
+                      {order.customer_name} · {order.order_type === 'dinein' ? 'Dine-In' : order.order_type === 'delivery' ? 'Delivery' : 'Ambil di Tempat'}
+                    </p>
+                    {order.table_no && (
+                      <p className="inline-block mt-2 bg-ember text-char text-xs font-bold px-3 py-1 rounded-full">🪑 Meja {order.table_no} — antar ke sini</p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-cream/50 text-xs font-bold uppercase tracking-widest">Total Bayar</p>
@@ -165,8 +170,11 @@ export default function Track() {
                     <h2 className="font-display text-xl uppercase">Menunggu ACC Pembayaran</h2>
                   </div>
                   <p className="text-char/60 text-sm mb-5">
-                    Scan & bayar <strong>{rupiah(order.total)}</strong> lewat QRIS di bawah ini (tekan untuk memperbesar).
-                    Setelah bayar, admin kasir akan mengecek dan meng-ACC — status pesanan berubah otomatis di halaman ini.
+                    {order.table_no
+                      ? 'Bayar langsung di meja: tunai ke pelayan atau scan QRIS di bawah ini (tekan untuk memperbesar). '
+                      : 'Scan & bayar '}
+                    <strong>{rupiah(order.total)}</strong>
+                    {order.table_no ? ' Setelah bayar, kasir meng-ACC — status pesanan berubah otomatis di halaman ini.' : ' lewat QRIS di bawah ini (tekan untuk memperbesar). Setelah bayar, admin kasir akan mengecek dan meng-ACC — status pesanan berubah otomatis di halaman ini.'}
                   </p>
                   {store?.qris_static_image ? (
                     <a href={store.qris_static_image} target="_blank" rel="noopener" className="block max-w-[280px] mx-auto">

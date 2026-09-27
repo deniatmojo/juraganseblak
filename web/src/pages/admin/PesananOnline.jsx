@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import QRCode from 'qrcode'
 import { api } from '../../api'
 
 const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
@@ -34,6 +35,9 @@ function OrderCard({ order, onAcc, onCancel, onProgress, busy }) {
             {' · '}{TYPE_LABEL[order.order_type] || 'Online'}
             {order.progress && ` · ${PROGRESS_LABEL[order.progress]}`}
           </p>
+          {order.table_no && (
+            <p className="inline-block mt-1 bg-ember text-char text-[11px] font-bold px-2.5 py-0.5 rounded-full">🪑 Meja {order.table_no} — antar ke sini</p>
+          )}
         </div>
         <span className={`font-bold text-sm shrink-0 ${isPending ? 'text-amber-600' : order.status === 'canceled' ? 'text-char/40 line-through' : 'text-chili'}`}>
           {rupiah(order.total)}
@@ -90,8 +94,162 @@ function OrderCard({ order, onAcc, onCancel, onProgress, busy }) {
   )
 }
 
+// Kartu QR satu meja (tampilan layar admin).
+function TableQrCard({ table, qrUrl, busy, onRename, onToggle, onDelete }) {
+  return (
+    <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-5 flex flex-col items-center gap-3 text-center ${!table.is_active ? 'opacity-50' : ''}`}>
+      {qrUrl && <img src={qrUrl} alt={`QR Meja ${table.label}`} className="w-36 h-36" />}
+      <div>
+        <p className="font-display text-xl">🪑 Meja {table.label}</p>
+        {!table.is_active && <p className="text-xs text-chili font-bold mt-0.5">Nonaktif — QR tidak bisa dipakai</p>}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        <button onClick={() => onRename(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">Ganti Nama</button>
+        <button onClick={() => onToggle(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">{table.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
+        <button onClick={() => onDelete(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">Hapus</button>
+      </div>
+    </div>
+  )
+}
+
+// Lembar cetak: semua QR meja aktif, satu kartu per meja siap potong-tempel.
+function TableQrPrintSheet({ tables, qrUrls }) {
+  return (
+    <div className="hidden print:block">
+      <h1 className="font-display text-3xl text-center uppercase mb-1">Juragan Seblak</h1>
+      <p className="text-center text-sm mb-6">Scan QR di bawah untuk memesan dari meja</p>
+      <div className="grid grid-cols-2 gap-8">
+        {tables.filter((t) => t.is_active).map((t) => (
+          <div key={t.id} className="break-inside-avoid border-2 border-black rounded-2xl p-6 text-center">
+            <p className="font-display text-2xl uppercase mb-3">🪑 Meja {t.label}</p>
+            {qrUrls[t.id] && <img src={qrUrls[t.id]} alt={`QR Meja ${t.label}`} className="w-48 h-48 mx-auto" />}
+            <p className="text-xs mt-3">1. Scan QR dengan kamera HP</p>
+            <p className="text-xs">2. Pilih menu & kirim pesanan</p>
+            <p className="text-xs">3. Bayar di meja — pesanan diantar ke meja {t.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Tab QR Meja: kelola daftar meja + QR per meja untuk ditempel di meja.
+function QrMejaView() {
+  const [tables, setTables] = useState([])
+  const [qrUrls, setQrUrls] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+  const [error, setError] = useState('')
+
+  const load = useCallback(() => {
+    return api.get('/online/tables')
+      .then(setTables)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // QR dibuat client-side dari origin aktif — di lokal berisi localhost,
+  // di produksi otomatis berisi domain produksi.
+  useEffect(() => {
+    let cancelled = false
+    const base = window.location.origin
+    Promise.all(tables.map(async (t) => {
+      const url = `${base}/order?meja=${t.id}`
+      const dataUrl = await QRCode.toDataURL(url, { width: 300, margin: 1 })
+      return [t.id, dataUrl]
+    }))
+      .then((pairs) => { if (!cancelled) setQrUrls(Object.fromEntries(pairs)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [tables])
+
+  const run = async (fn) => {
+    setBusy(true)
+    try {
+      await fn()
+      await load()
+      setError('')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const add = (e) => {
+    e.preventDefault()
+    const label = newLabel.trim()
+    if (!label) return
+    return run(async () => {
+      await api.post('/online/tables', { label })
+      setNewLabel('')
+    })
+  }
+  const rename = (t) => {
+    const label = window.prompt(`Ganti nama meja "${t.label}" menjadi:`, t.label)
+    if (!label || !label.trim() || label.trim() === t.label) return
+    return run(() => api.patch(`/online/tables/${t.id}`, { label: label.trim() }))
+  }
+  const toggle = (t) => run(() => api.patch(`/online/tables/${t.id}`, { is_active: t.is_active ? 0 : 1 }))
+  const remove = (t) => {
+    if (!window.confirm(`Hapus Meja ${t.label}? QR yang sudah ditempel di meja akan tidak valid.`)) return
+    return run(() => api.del(`/online/tables/${t.id}`))
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <p className="text-sm text-char/60">
+          Setiap meja punya QR sendiri — tempel di meja, pembeli cukup scan, pesan, dan bayar di tempat.
+          Pelayan melihat nomor meja di daftar pesanan.
+        </p>
+        <button
+          onClick={() => window.print()}
+          disabled={loading || tables.filter((t) => t.is_active).length === 0}
+          className="bg-char hover:bg-char-soft text-white font-bold text-sm py-2.5 px-5 rounded-xl transition-colors disabled:opacity-50"
+        >
+          🖨️ Cetak Semua QR
+        </button>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold print:hidden">{error}</div>}
+
+      <form onSubmit={add} className="flex gap-3 print:hidden">
+        <input
+          type="text"
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          placeholder="Nama meja baru, mis. 9 / Teras-1 / VIP-2"
+          className="flex-1 border border-black/15 rounded-xl px-4 py-3 text-sm"
+        />
+        <button type="submit" disabled={busy || !newLabel.trim()} className="bg-chili hover:bg-chili-dark disabled:opacity-50 text-white font-bold text-sm px-6 rounded-xl transition-colors">
+          + Tambah Meja
+        </button>
+      </form>
+
+      {loading ? (
+        <p className="text-char/40 text-sm print:hidden">Memuat…</p>
+      ) : tables.length === 0 ? (
+        <p className="text-char/40 text-sm bg-white border border-black/5 rounded-2xl p-6 print:hidden">Belum ada meja. Tambahkan meja pertama di atas.</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 print:hidden">
+          {tables.map((t) => (
+            <TableQrCard key={t.id} table={t} qrUrl={qrUrls[t.id]} busy={busy} onRename={rename} onToggle={toggle} onDelete={remove} />
+          ))}
+        </div>
+      )}
+
+      <TableQrPrintSheet tables={tables} qrUrls={qrUrls} />
+    </div>
+  )
+}
+
 export default function PesananOnline() {
   const { user } = useOutletContext()
+  const [view, setView] = useState('orders') // 'orders' | 'tables'
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -151,6 +309,25 @@ export default function PesananOnline() {
 
   return (
     <div className="p-5 md:p-8 space-y-10">
+      <div className="flex gap-2 print:hidden">
+        {[
+          { key: 'orders', label: '📋 Pesanan' },
+          { key: 'tables', label: '🪑 QR Meja' },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setView(t.key)}
+            className={`font-bold text-sm px-5 py-2.5 rounded-full border transition-colors ${view === t.key ? 'bg-chili text-white border-chili' : 'bg-white text-char/60 border-black/10 hover:border-chili'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'tables' ? (
+        <QrMejaView />
+      ) : (
+        <>
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold">{error}</div>
       )}
@@ -190,6 +367,8 @@ export default function PesananOnline() {
       <p className="text-xs text-char/40">
         Login sebagai <strong>{user?.name}</strong> · daftar menyegarkan sendiri tiap 15 detik.
       </p>
+        </>
+      )}
     </div>
   )
 }
