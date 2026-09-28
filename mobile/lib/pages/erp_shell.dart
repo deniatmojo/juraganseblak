@@ -6,6 +6,7 @@ import '../auth_service.dart';
 import '../theme.dart';
 import 'dashboard_page.dart';
 import 'pos_page.dart';
+import 'pesanan_online_page.dart';
 import 'menu_page.dart';
 import 'absensi_page.dart';
 import 'stock_page.dart';
@@ -56,6 +57,9 @@ class _ErpShellState extends State<ErpShell> {
           ['owner', 'admin'], DashboardPage()),
       NavEntry('Kasir / POS', 'Meja 07 · Dine-in', Icons.point_of_sale_outlined,
           ['owner', 'admin', 'kasir'], PosPage(user: widget.user)),
+      NavEntry('Pesanan Online', 'ACC pembayaran QRIS & pantau tahap pesanan',
+          Icons.shop_two_outlined, ['owner', 'admin', 'kasir'],
+          PesananOnlinePage(user: widget.user)),
       NavEntry('Menu', 'Kelola menu, harga, HPP & kategori',
           Icons.restaurant_menu_outlined, ['owner', 'admin'], MenuPage(user: widget.user)),
       NavEntry('Absensi', 'Kehadiran karyawan hari ini',
