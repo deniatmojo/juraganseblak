@@ -345,7 +345,7 @@ class _StockPageState extends State<StockPage> {
                               borderRadius: BorderRadius.circular(999))),
                       onPressed: _addDialog,
                       icon: const Icon(Icons.add, size: 16),
-                      label: Text('+ Bahan Baru',
+                      label: Text('Bahan Baru',
                           style: AppText.body(
                               size: 11,
                               weight: FontWeight.w700,

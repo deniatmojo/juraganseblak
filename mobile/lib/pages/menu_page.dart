@@ -406,11 +406,10 @@ class _MenuPageState extends State<MenuPage> {
                     ),
                   ]),
                 ),
-              TextButton.icon(
+              TextButton(
                 onPressed: () => setD(() => links.add(
                     MapEntry(null, TextEditingController(text: '1')))),
-                icon: const Icon(Icons.add, size: 16),
-                label: Text('+ Tambah Bahan',
+                child: Text('+ Tambah Bahan',
                     style: AppText.body(
                         size: 12,
                         weight: FontWeight.w700,

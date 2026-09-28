@@ -15,6 +15,25 @@ import 'keuangan_page.dart';
 import 'karyawan_page.dart';
 import 'gaji_page.dart';
 
+/// Satu item notifikasi pada lonceng header.
+class _Notif {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String detail;
+  final int count;
+  final String? routeTitle; // halaman tujuan bila tersedia untuk role ini
+
+  const _Notif({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.detail,
+    required this.count,
+    this.routeTitle,
+  });
+}
+
 class NavEntry {
   final String title;
   final String subtitle;
@@ -42,9 +61,11 @@ class _ErpShellState extends State<ErpShell> {
   DateTime now = DateTime.now();
   Timer? timer;
 
-  // Notifikasi stok kritis — padanan AdminLayout.jsx:105-130 (refresh 60 dtk).
-  List<Map<String, dynamic>> lowStock = [];
-  Timer? stockTimer;
+  // Pusat notifikasi role-aware — lonceng header (AdminLayout web, diperluas
+  // sesuai permintaan): stok kritis semua role, pesanan online owner/admin/
+  // kasir, absensi, dan keuangan (kasbon/gaji pending) HANYA owner.
+  List<_Notif> notifs = [];
+  Timer? notifTimer;
 
   @override
   void initState() {
@@ -55,7 +76,7 @@ class _ErpShellState extends State<ErpShell> {
     final entriesAll = <NavEntry>[
       NavEntry('Dashboard', 'Ringkasan operasional hari ini', Icons.home_outlined,
           ['owner', 'admin'], DashboardPage()),
-      NavEntry('Kasir / POS', 'Meja 07 · Dine-in', Icons.point_of_sale_outlined,
+      NavEntry('Kasir / POS', 'Kasir ${widget.user.name}', Icons.point_of_sale_outlined,
           ['owner', 'admin', 'kasir'], PosPage(user: widget.user)),
       NavEntry('Pesanan Online', 'ACC pembayaran QRIS & pantau tahap pesanan',
           Icons.shop_two_outlined, ['owner', 'admin', 'kasir'],
@@ -89,26 +110,145 @@ class _ErpShellState extends State<ErpShell> {
     if (index < 0) index = 0;
     timer = Timer.periodic(const Duration(seconds: 1),
         (_) => setState(() => now = DateTime.now()));
-    _loadLowStock();
-    stockTimer = Timer.periodic(
-        const Duration(seconds: 60), (_) => _loadLowStock());
+    _loadNotifications();
+    notifTimer = Timer.periodic(
+        const Duration(seconds: 60), (_) => _loadNotifications());
   }
 
-  Future<void> _loadLowStock() async {
+  int _notifTotal() => notifs.fold(0, (s, n) => s + n.count);
+
+  Future<void> _loadNotifications() async {
+    final list = await _fetchNotifications();
+    if (mounted) setState(() => notifs = list);
+  }
+
+  Future<List<_Notif>> _fetchNotifications() async {
+    final role = widget.user.role;
+    final n = DateTime.now();
+    final two = (int v) => v.toString().padLeft(2, '0');
+    final today = '${n.year}-${two(n.month)}-${two(n.day)}';
+    final monthStart = '${n.year}-${two(n.month)}-01';
+    final list = <_Notif>[];
+
+    // 1) Stok kritis — semua role (sama seperti lonceng web).
     try {
       final items = await api.get('/stock');
-      if (mounted) {
-        setState(() => lowStock = (items as List)
-            .map((r) => Map<String, dynamic>.from(r as Map))
-            .where((i) => i['is_low'] == 1 || i['is_low'] == true)
-            .toList());
+      final low = (items as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .where((i) => i['is_low'] == 1 || i['is_low'] == true)
+          .toList();
+      if (low.isNotEmpty) {
+        list.add(_Notif(
+          icon: Icons.inventory_2_outlined,
+          color: AppColors.chili,
+          title: 'Stok kritis: ${low.length} bahan',
+          detail: low
+              .take(3)
+              .map((s) => '${s['name']} (${s['qty']} ${s['unit']})')
+              .join(', ') + (low.length > 3 ? ', …' : ''),
+          count: low.length,
+          routeTitle: (role == 'owner' || role == 'admin') ? 'Stock' : null,
+        ));
       }
-    } catch (_) {
-      // notifikasi bersifat info — gagal load diamkan
+    } catch (_) {}
+
+    // 2) Pesanan online — owner/admin/kasir (bukan keuangan, tapi operasional).
+    if (role == 'owner' || role == 'admin' || role == 'kasir') {
+      try {
+        final rows = (await api.get('/orders') as List)
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .where((o) => o['channel'] == 'online')
+            .toList();
+        final pending =
+            rows.where((o) => o['status'] == 'pending').length;
+        final queue = rows
+            .where((o) => o['status'] == 'paid' && o['progress'] != 'done')
+            .length;
+        if (pending > 0) {
+          list.add(_Notif(
+            icon: Icons.shop_two_outlined,
+            color: AppColors.ember,
+            title: 'Pesanan online menunggu ACC: $pending',
+            detail: 'Cek rekening/QRIS lalu ACC agar pesanan masuk antrian.',
+            count: pending,
+            routeTitle: 'Pesanan Online',
+          ));
+        }
+        if (queue > 0) {
+          list.add(_Notif(
+            icon: Icons.schedule,
+            color: AppColors.char,
+            title: 'Antrian online belum selesai: $queue',
+            detail: 'Proses sampai siap/diantar, lalu tandai selesai.',
+            count: queue,
+            routeTitle: 'Pesanan Online',
+          ));
+        }
+      } catch (_) {}
     }
+
+    // 3) Absensi — owner/admin: karyawan belum absen; kasir/karyawan: diri sendiri.
+    try {
+      final rows = (await api.get('/attendance?date=$today') as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+      if (role == 'owner' || role == 'admin') {
+        final belum = rows
+            .where((r) => r['clock_in'] == null && r['status'] == null)
+            .length;
+        if (belum > 0) {
+          list.add(_Notif(
+            icon: Icons.fact_check_outlined,
+            color: AppColors.ember,
+            title: '$belum karyawan belum absen masuk',
+            detail: 'Kehadiran hari ini belum lengkap.',
+            count: belum,
+            routeTitle: 'Absensi',
+          ));
+        }
+      } else if (rows.isNotEmpty) {
+        final me = rows.first;
+        if (me['clock_in'] == null) {
+          list.add(_Notif(
+            icon: Icons.fact_check_outlined,
+            color: AppColors.ember,
+            title: 'Kamu belum clock in hari ini',
+            detail: 'Absen masuk agar tercatat di rekap absensi.',
+            count: 1,
+            routeTitle: 'Absensi',
+          ));
+        }
+      }
+    } catch (_) {}
+
+    // 4) Keuangan (kasbon & pending gaji bulan ini) — HANYA owner.
+    if (role == 'owner') {
+      try {
+        final rows = (await api.get('/payroll?from=$monthStart&to=$today') as List)
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .toList();
+        final kasbon = rows.fold<num>(
+            0, (s, r) => s + (num.tryParse('${r['kasbon_open']}') ?? 0));
+        final pendingPay = rows.fold<num>(
+            0, (s, r) => s + (num.tryParse('${r['pending']}') ?? 0));
+        if (kasbon > 0 || pendingPay > 0) {
+          list.add(_Notif(
+            icon: Icons.payments_outlined,
+            color: AppColors.chili,
+            title: 'Kasbon & pending gaji menunggu',
+            detail:
+                'Kasbon belum lunas ${formatRp(kasbon)} · Pending bayar ${formatRp(pendingPay)} (bulan ini).',
+            count: 1,
+            routeTitle: 'Gaji',
+          ));
+        }
+      } catch (_) {}
+    }
+    return list;
   }
 
-  void _showLowStockSheet() {
+  void _showNotifSheet() {
+    _loadNotifications();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -117,73 +257,94 @@ class _ErpShellState extends State<ErpShell> {
       builder: (sheetCtx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
             child: Row(children: [
               Expanded(
-                child: Text('Stok Kritis',
+                child: Text('Notifikasi',
                     style: AppText.body(size: 15, weight: FontWeight.w700)),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                    color: AppColors.redBg,
-                    borderRadius: BorderRadius.circular(999)),
-                child: Text('${lowStock.length} bahan',
-                    style: AppText.body(
-                        size: 11,
-                        weight: FontWeight.w700,
-                        color: AppColors.chili)),
-              ),
+              if (notifs.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: AppColors.redBg,
+                      borderRadius: BorderRadius.circular(999)),
+                  child: Text('${_notifTotal()} item',
+                      style: AppText.body(
+                          size: 11,
+                          weight: FontWeight.w700,
+                          color: AppColors.chili)),
+                ),
             ]),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Sesuai hak akses role ${widget.user.roleLabel}.',
+                style: AppText.body(size: 10, color: Colors.black38),
+              ),
+            ),
+          ),
           const Divider(height: 1),
-          if (lowStock.isEmpty)
+          if (notifs.isEmpty)
             Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Semua stok aman 👍',
+              child: Text('Tidak ada notifikasi 👍',
                   style: AppText.body(size: 13, color: Colors.black38)),
             ),
-          for (final s in lowStock)
-            ListTile(
-              title: Text('${s['name']}',
-                  style: AppText.body(size: 13, weight: FontWeight.w700)),
-              subtitle: Text('min ${s['min_qty']} ${s['unit']}',
-                  style: AppText.body(size: 11, color: Colors.black45)),
-              trailing: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                    color: AppColors.redBg,
-                    borderRadius: BorderRadius.circular(999)),
-                child: Text('${s['qty']} ${s['unit']}',
-                    style: AppText.body(
-                        size: 11,
-                        weight: FontWeight.w700,
-                        color: AppColors.chili)),
-              ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.only(bottom: 8),
+              children: [
+                for (final n in notifs)
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: n.color.withValues(alpha: 0.12),
+                      child: Icon(n.icon, size: 20, color: n.color),
+                    ),
+                    title: Text(n.title,
+                        style: AppText.body(
+                            size: 13, weight: FontWeight.w700)),
+                    subtitle: Text(n.detail,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            AppText.body(size: 11, color: Colors.black45)),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                            color: n.color.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999)),
+                        child: Text('${n.count}',
+                            style: AppText.body(
+                                size: 11,
+                                weight: FontWeight.w800,
+                                color: n.color)),
+                      ),
+                      if (n.routeTitle != null &&
+                          entries.any((e) => e.title == n.routeTitle))
+                        const Icon(Icons.chevron_right,
+                            size: 18, color: Colors.black26),
+                    ]),
+                    onTap: n.routeTitle == null
+                        ? null
+                        : () {
+                            final i = entries
+                                .indexWhere((e) => e.title == n.routeTitle);
+                            if (i < 0) return;
+                            Navigator.pop(sheetCtx);
+                            setState(() => index = i);
+                          },
+                  ),
+              ],
             ),
-          if (widget.user.role == 'owner')
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.char,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: const RoundedRectangleBorder()),
-                onPressed: () {
-                  Navigator.pop(sheetCtx);
-                  final i =
-                      entries.indexWhere((e) => e.title == 'Stock');
-                  if (i >= 0) setState(() => index = i);
-                },
-                child: Text('Kelola Stok',
-                    style: AppText.body(
-                        size: 13,
-                        weight: FontWeight.w700,
-                        color: Colors.white)),
-              ),
-            ),
+          ),
         ]),
       ),
     );
@@ -192,7 +353,7 @@ class _ErpShellState extends State<ErpShell> {
   @override
   void dispose() {
     timer?.cancel();
-    stockTimer?.cancel();
+    notifTimer?.cancel();
     super.dispose();
   }
 
@@ -258,17 +419,17 @@ class _ErpShellState extends State<ErpShell> {
                     ],
                   ),
                   const SizedBox(width: 8),
-                  // Lonceng notifikasi stok kritis (AdminLayout.jsx:215-255)
+                  // Lonceng notifikasi role-aware
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
                       IconButton(
-                        tooltip: 'Notifikasi stok',
+                        tooltip: 'Notifikasi',
                         icon: const Icon(Icons.notifications_outlined,
                             color: AppColors.char),
-                        onPressed: _showLowStockSheet,
+                        onPressed: _showNotifSheet,
                       ),
-                      if (lowStock.isNotEmpty)
+                      if (_notifTotal() > 0)
                         Positioned(
                           top: 4,
                           right: 4,
@@ -280,7 +441,7 @@ class _ErpShellState extends State<ErpShell> {
                                 borderRadius: BorderRadius.circular(999),
                                 border:
                                     Border.all(color: Colors.white, width: 1.5)),
-                            child: Text('${lowStock.length}',
+                            child: Text('${_notifTotal()}',
                                 style: AppText.body(
                                     size: 9,
                                     weight: FontWeight.w700,

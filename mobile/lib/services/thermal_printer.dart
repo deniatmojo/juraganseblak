@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,9 +61,12 @@ class ThermalData {
 class ThermalPrinter {
   static const _macKey = 'thermal_printer_mac';
 
-  /// Cetak ke printer Bluetooth: pastikan Bluetooth aktif, tersambung ke
-  /// printer tersimpan (atau minta pilih), lalu kirim bytes.
+  /// Cetak ke printer Bluetooth: minta izin runtime dulu (Android 12+
+  /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), pastikan
+  /// Bluetooth aktif, tersambung ke printer tersimpan (atau minta pilih),
+  /// lalu kirim bytes.
   static Future<void> print(BuildContext context, ThermalData data) async {
+    await _ensurePermission();
     if (!await PrintBluetoothThermal.bluetoothEnabled) {
       throw Exception('Bluetooth mati — nyalakan Bluetooth dulu.');
     }
@@ -76,7 +81,20 @@ class ThermalPrinter {
     return _printBytes(data);
   }
 
-  static Future<void> _printBytes(ThermalData data) async {
+  /// Izin Bluetooth runtime — Android 12+ (API 31) menuntut BLUETOOTH_CONNECT
+  /// diminta lewat dialog sistem sebelum pairedBluetooths/connect dipakai.
+  static Future<void> _ensurePermission() async {
+    if (!Platform.isAndroid) return;
+    if (await Permission.bluetoothConnect.isGranted) return;
+    final status = await Permission.bluetoothConnect.request();
+    if (!status.isGranted) {
+      throw Exception(
+          'Izin Bluetooth ditolak — izinkan akses "Nearby devices" untuk printer.');
+    }
+  }
+
+  static Future<void> _printBytes(ThermalData raw) async {
+    final data = _sanitized(raw);
     final profile = await CapabilityProfile.load();
     final gen = Generator(PaperSize.mm58, profile);
     final bytes =
@@ -84,6 +102,30 @@ class ThermalPrinter {
     final ok = await PrintBluetoothThermal.writeBytes(bytes);
     if (!ok) throw Exception('Printer menolak data cetakan.');
   }
+
+  /// Salinan data dengan teks yang sudah dibersihkan dari non-ASCII.
+  static ThermalData _sanitized(ThermalData d) => ThermalData(
+        kind: d.kind,
+        no: _clean(d.no),
+        date: _clean(d.date),
+        cashier: _clean(d.cashier),
+        customer: d.customer == null ? null : _clean(d.customer!),
+        table: d.table == null ? null : _clean(d.table!),
+        method: _clean(d.method),
+        storeName: _clean(d.storeName),
+        storeAddress: _clean(d.storeAddress),
+        storePhone: _clean(d.storePhone),
+        footer: _clean(d.footer),
+        items: [
+          for (final i in d.items)
+            ThermalItem(i.qty, _clean(i.name), i.price,
+                i.note == null ? null : _clean(i.note!)),
+        ],
+        subtotal: d.subtotal,
+        tax: d.tax,
+        service: d.service,
+        total: d.total,
+      );
 
   static Future<bool> _connectSaved() async {
     final prefs = await SharedPreferences.getInstance();
@@ -154,6 +196,16 @@ class ThermalPrinter {
 
   static String _rp(num n) =>
       'Rp ${n.round().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => '.')}';
+
+  /// Printer termal default memakai codepage CP437 — em-dash, kutip melengkung,
+  /// emoji dll akan tercetak sebagai sampah. Petakan yang umum, sisanya buang.
+  static String _clean(String s) => s
+      .replaceAll('—', '-')
+      .replaceAll('–', '-')
+      .replaceAll('·', '-')
+      .replaceAll('\u2193', 'v')
+      .replaceAll('\u2191', '^')
+      .replaceAllMapped(RegExp(r'[^\x20-\x7E\n]'), (m) => '');
 
   // ---- Template STRUK — mirror web Pos.jsx:807-838 ----
   static Uint8List _buildStruk(Generator gen, ThermalData d) {

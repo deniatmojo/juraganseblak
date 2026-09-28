@@ -617,26 +617,32 @@ class _PosPageState extends State<PosPage> {
 
     final wide = MediaQuery.of(context).size.width > 900;
     if (wide) {
-      // Tablet/landscape: dua kolom seperti web.
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(flex: 3, child: _menuColumn(shrinkWrap: false)),
-          const SizedBox(width: 16),
-          SizedBox(width: 380, child: _cartCard()),
-        ]),
-      );
+      // Tablet/landscape: dua kolom seperti web. Overlay pembayaran harus
+      // di dalam Stack — Positioned.fill di luar Stack membuat layar kosong.
+      return Stack(children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(flex: 3, child: _menuColumn(shrinkWrap: false)),
+            const SizedBox(width: 16),
+            SizedBox(width: 380, child: _cartCard()),
+          ]),
+        ),
+        if (payModal != null) _payModalOverlay(),
+      ]);
     }
     // Ponsel: satu alur scroll — menu dulu, keranjang di bawah (seperti web).
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        _menuColumn(shrinkWrap: true),
-        const SizedBox(height: 16),
-        _cartCard(),
-        if (payModal != null) _payModalOverlay(),
-      ]),
-    );
+    return Stack(children: [
+      SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(children: [
+          _menuColumn(shrinkWrap: true),
+          const SizedBox(height: 16),
+          _cartCard(),
+        ]),
+      ),
+      if (payModal != null) _payModalOverlay(),
+    ]);
   }
 
   Widget _menuColumn({required bool shrinkWrap}) {
