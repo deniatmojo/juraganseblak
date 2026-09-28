@@ -360,23 +360,26 @@ class _PosPageState extends State<PosPage> {
   // ---------- RECEIPT ----------
 
   void _showReceipt(Map<String, dynamic> o) {
+    // Keranjang dikosongkan SEKARANG — saat pesanan sudah tersimpan — bukan
+    // saat dialog ditutup. Item struk sudah ditangkap ke `lines`, sehingga
+    // tombol "Pesanan Baru" MAUPUN tombol back meninggalkan keranjang kosong
+    // (perilaku closeReceipt() di web Pos.jsx:231-235).
+    final lines = List<_CartLine>.of(cart);
+    setState(() => cart.clear());
+    _loadShift();
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => _ReceiptDialog(
         receipt: o,
         cashier: widget.user.name,
-        lines: List.of(cart),
+        lines: lines,
         storeName: storeName,
         storeAddress: storeAddress,
         storePhone: storePhone,
         storeFooter: storeFooter,
-        onPrint: (kind) => _printFromCart(kind, o),
-        onClose: () {
-          Navigator.pop(context);
-          setState(() => cart.clear());
-          _loadShift();
-        },
+        onPrint: (kind) => _printOrder(kind, o, lines),
+        onClose: () => Navigator.pop(context),
       ),
     );
   }
@@ -389,9 +392,12 @@ class _PosPageState extends State<PosPage> {
     return '${s.substring(0, 10).split('-').reversed.join('/')} ${s.substring(11, 16).replaceAll(':', '.')}';
   }
 
-  Future<void> _printFromCart(String kind, Map<String, dynamic> o) async {
+  /// Cetak dari struk baru — item diambil dari snapshot keranjang `lines`
+  /// (bukan `cart`, yang sudah dikosongkan saat struk muncul).
+  Future<void> _printOrder(
+      String kind, Map<String, dynamic> o, List<_CartLine> lines) async {
     final items = [
-      for (final l in cart) ThermalItem(l.qty, l.item.name, l.item.price, l.note),
+      for (final l in lines) ThermalItem(l.qty, l.item.name, l.item.price, l.note),
     ];
     await _doPrint(kind, o, items, cashierOverride: widget.user.name);
   }

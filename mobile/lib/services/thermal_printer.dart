@@ -62,14 +62,15 @@ class ThermalPrinter {
   static const _macKey = 'thermal_printer_mac';
 
   /// Cetak ke printer Bluetooth: minta izin runtime dulu (Android 12+
-  /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), pastikan
-  /// Bluetooth aktif, tersambung ke printer tersimpan (atau minta pilih),
-  /// lalu kirim bytes.
+  /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), lalu coba
+  /// sambung ke printer tersimpan atau minta pilih dari daftar.
+  ///
+  /// CATATAN: hasil `bluetoothEnabled` TIDAK dipakai untuk memblokir —
+  /// di sebagian ROM ia melaporkan false meski Bluetooth nyala (cek internal
+  /// plugin terikat kombinasi izin). Kegagalan sejati muncul di connect.
   static Future<void> print(BuildContext context, ThermalData data) async {
-    await _ensurePermission();
-    if (!await PrintBluetoothThermal.bluetoothEnabled) {
-      throw Exception('Bluetooth mati — nyalakan Bluetooth dulu.');
-    }
+    await _ensurePermissions();
+    final btReportsOff = !(await PrintBluetoothThermal.bluetoothEnabled);
     var connected = await PrintBluetoothThermal.connectionStatus;
     if (!connected) connected = await _connectSaved();
     if (connected) return _printBytes(data);
@@ -77,19 +78,30 @@ class ThermalPrinter {
       throw Exception('Aplikasi tidak aktif — coba cetak lagi.');
     }
     connected = await _connectPick(context);
-    if (!connected) throw Exception('Gagal terhubung ke printer.');
+    if (!connected) {
+      throw Exception(btReportsOff
+          ? 'Bluetooth tidak terdeteksi aplikasi — pastikan Bluetooth menyala dan izin "Nearby devices" diberikan, lalu coba lagi.'
+          : 'Gagal terhubung ke printer — pastikan printer menyala dan sudah dipasangkan di pengaturan Bluetooth.');
+    }
     return _printBytes(data);
   }
 
   /// Izin Bluetooth runtime — Android 12+ (API 31) menuntut BLUETOOTH_CONNECT
   /// diminta lewat dialog sistem sebelum pairedBluetooths/connect dipakai.
-  static Future<void> _ensurePermission() async {
+  /// BLUETOOTH_SCAN ikut diminta karena cek internal plugin bisa menggabungkan
+  /// keduanya; kegagalannya tidak memblokir selama salah satu terlah granted.
+  static Future<void> _ensurePermissions() async {
     if (!Platform.isAndroid) return;
-    if (await Permission.bluetoothConnect.isGranted) return;
-    final status = await Permission.bluetoothConnect.request();
-    if (!status.isGranted) {
+    final statuses = await [
+      Permission.bluetoothConnect,
+      Permission.bluetoothScan,
+    ].request();
+    final connectOk =
+        statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+    final scanOk = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+    if (!connectOk && !scanOk) {
       throw Exception(
-          'Izin Bluetooth ditolak — izinkan akses "Nearby devices" untuk printer.');
+          'Izin Bluetooth ("Nearby devices") ditolak — izinkan di pengaturan aplikasi untuk mencetak.');
     }
   }
 
@@ -140,7 +152,14 @@ class ThermalPrinter {
 
   /// Pilih printer dari perangkat Bluetooth yang sudah dipasangkan.
   static Future<bool> _connectPick(BuildContext context) async {
-    final devices = await PrintBluetoothThermal.pairedBluetooths;
+    List<BluetoothInfo> devices;
+    try {
+      devices = await PrintBluetoothThermal.pairedBluetooths;
+    } catch (_) {
+      // Bluetooth benar-benar mati / ROM aneh — tampilkan daftar kosong
+      // dengan petunjuk, jangan crash dengan exception mentah.
+      devices = [];
+    }
     if (!context.mounted) return false;
     final mac = await showModalBottomSheet<String>(
       context: context,
@@ -157,7 +176,7 @@ class ThermalPrinter {
               const SizedBox(height: 4),
               Text(
                   devices.isEmpty
-                      ? 'Tidak ada perangkat terpasang — pasangkan printer termal di pengaturan Bluetooth dulu.'
+                      ? 'Tidak ada printer terpasang — pastikan Bluetooth menyala dan printer sudah di-pairing di pengaturan Bluetooth HP.'
                       : 'Printer akan diingat untuk cetakan berikutnya.',
                   style: AppText.body(size: 11, color: Colors.black45)),
             ]),
