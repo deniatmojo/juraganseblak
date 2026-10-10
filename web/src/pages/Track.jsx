@@ -4,6 +4,24 @@ import { api } from '../api'
 
 const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
 
+// Kelompokkan baris order_items (dari /online/track) menjadi porsi prasmanan
+// (kuah + topping per porsi_no) dan item biasa.
+function groupItems(items) {
+  const groups = []
+  for (const it of items || []) {
+    if (it.item_role === 'kuah') {
+      groups.push({ kind: 'porsi', no: it.porsi_no, qty: it.qty, kuah: it, note: it.note, toppings: [] })
+    } else if (it.item_role === 'topping') {
+      const g = groups[groups.length - 1]
+      if (g?.kind === 'porsi' && g.no === it.porsi_no) g.toppings.push(it)
+      else groups.push({ kind: 'porsi', no: it.porsi_no, qty: null, kuah: null, note: null, toppings: [it] })
+    } else {
+      groups.push({ kind: 'item', item: it })
+    }
+  }
+  return groups
+}
+
 // Tahapan pesanan setelah pembayaran di-ACC. Label "siap" menyesuaikan tipe:
 // delivery = diantar, lainnya = siap diambil.
 function progressSteps(orderType) {
@@ -226,14 +244,35 @@ export default function Track() {
               {/* RINCIAN ITEM */}
               <div className="bg-white rounded-2xl border border-black/5 shadow-sm p-6">
                 <p className="font-bold text-sm mb-3">Rincian Pesanan</p>
-                <ul className="space-y-2 text-sm">
-                  {order.items.map((it, i) => (
-                    <li key={i} className="flex justify-between gap-3">
-                      <span>{it.qty}× {it.name}</span>
-                      <span className="font-semibold shrink-0">{rupiah(it.unit_price * it.qty)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="space-y-3 text-sm">
+                  {groupItems(order.items).map((g, i) =>
+                    g.kind === 'item' ? (
+                      <div key={i} className="flex justify-between gap-3">
+                        <span>{g.item.qty}× {g.item.name}</span>
+                        <span className="font-semibold shrink-0">{rupiah(g.item.unit_price * g.item.qty)}</span>
+                      </div>
+                    ) : (
+                      <div key={i} className="border border-black/5 rounded-xl p-3 bg-cream/40">
+                        {g.kuah ? (
+                          <div className="flex justify-between gap-3">
+                            <span className="font-semibold">
+                              Porsi {g.no} · {g.qty}× {g.kuah.name}
+                              {g.note && <span className="block text-xs font-normal text-char/50">↳ {g.note}</span>}
+                            </span>
+                            <span className="font-semibold shrink-0">{rupiah(g.kuah.unit_price * g.qty)}</span>
+                          </div>
+                        ) : (
+                          <p className="font-semibold">Porsi {g.no}</p>
+                        )}
+                        {g.toppings.length > 0 && (
+                          <p className="text-xs text-char/60 mt-1">
+                            {g.toppings.map((t) => `+ ${t.qty > 1 ? `${t.qty}x ` : ''}${t.name}`).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
                 <div className="border-t border-black/5 mt-3 pt-3 space-y-1 text-sm text-char/60">
                   <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(order.subtotal)}</span></div>
                   {order.tax_amount > 0 && <div className="flex justify-between"><span>Pajak</span><span>{rupiah(order.tax_amount)}</span></div>}

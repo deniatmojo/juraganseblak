@@ -17,7 +17,12 @@ class ThermalItem {
   final String name;
   final double price;
   final String? note;
-  const ThermalItem(this.qty, this.name, this.price, this.note);
+  // Seblak prasmanan: item_role ('kuah'|'topping') + porsi_no untuk
+  // pengelompokan porsi di struk/resep dapur. Null = item biasa (minuman).
+  final int? porsiNo;
+  final String? role;
+  const ThermalItem(this.qty, this.name, this.price, this.note,
+      {this.porsiNo, this.role});
 }
 
 class ThermalData {
@@ -131,7 +136,8 @@ class ThermalPrinter {
         items: [
           for (final i in d.items)
             ThermalItem(i.qty, _clean(i.name), i.price,
-                i.note == null ? null : _clean(i.note!)),
+                i.note == null ? null : _clean(i.note!),
+                porsiNo: i.porsiNo, role: i.role),
         ],
         subtotal: d.subtotal,
         tax: d.tax,
@@ -250,18 +256,47 @@ class ThermalPrinter {
     b.add(_row(gen, 'Tanggal', d.date));
     b.add(gen.hr(ch: '-', linesAfter: 1));
     for (final i in d.items) {
-      b.add(gen.row([
-        PosColumn(
-            text: '${i.qty}x ${i.name}',
-            width: 8,
-            styles: const PosStyles(bold: true)),
-        PosColumn(
-            text: _rp(i.price * i.qty),
-            width: 4,
-            styles: const PosStyles(align: PosAlign.right, bold: true)),
-      ]));
-      if (i.note != null && i.note!.isNotEmpty) {
-        b.add(gen.text('> ${i.note}'));
+      if (i.role == 'kuah') {
+        // Baris kuah = kepala porsi prasmanan (qty = jumlah porsi).
+        b.add(gen.row([
+          PosColumn(
+              text: '${i.qty}x ${i.name} (P.${i.porsiNo ?? '-'})',
+              width: 8,
+              styles: const PosStyles(bold: true)),
+          PosColumn(
+              text: _rp(i.price * i.qty),
+              width: 4,
+              styles: const PosStyles(align: PosAlign.right, bold: true)),
+        ]));
+        if (i.note != null && i.note!.isNotEmpty) {
+          b.add(gen.text('> ${i.note}'));
+        }
+      } else if (i.role == 'topping') {
+        // Topping menjorok ke dalam, di bawah kuah porsinya.
+        b.add(gen.row([
+          PosColumn(
+              text: '+ ${i.qty}x ${i.name}',
+              width: 8,
+              styles: const PosStyles()),
+          PosColumn(
+              text: _rp(i.price * i.qty),
+              width: 4,
+              styles: const PosStyles(align: PosAlign.right)),
+        ]));
+      } else {
+        b.add(gen.row([
+          PosColumn(
+              text: '${i.qty}x ${i.name}',
+              width: 8,
+              styles: const PosStyles(bold: true)),
+          PosColumn(
+              text: _rp(i.price * i.qty),
+              width: 4,
+              styles: const PosStyles(align: PosAlign.right, bold: true)),
+        ]));
+        if (i.note != null && i.note!.isNotEmpty) {
+          b.add(gen.text('> ${i.note}'));
+        }
       }
     }
     b.add(gen.hr(ch: '-', linesAfter: 1));
@@ -313,12 +348,26 @@ class ThermalPrinter {
     }
     b.add(gen.hr(ch: '-', linesAfter: 1));
     for (final i in d.items) {
-      b.add(gen.text('${i.qty}x ${i.name}',
-          styles: const PosStyles(
-              bold: true, height: PosTextSize.size2)));
-      if (i.note != null && i.note!.isNotEmpty) {
-        b.add(gen.text('> ${i.note}',
-            styles: const PosStyles(bold: true)));
+      if (i.role == 'kuah') {
+        // Kepala porsi prasmanan — besar & tebal agar mudah dibaca koki.
+        b.add(gen.text('PORSI ${i.porsiNo ?? '-'}: ${i.qty}x ${i.name}',
+            styles: const PosStyles(
+                bold: true, height: PosTextSize.size2)));
+        if (i.note != null && i.note!.isNotEmpty) {
+          b.add(gen.text('> ${i.note}',
+              styles: const PosStyles(bold: true)));
+        }
+      } else if (i.role == 'topping') {
+        b.add(gen.text('   + ${i.qty}x ${i.name}',
+            styles: const PosStyles()));
+      } else {
+        b.add(gen.text('${i.qty}x ${i.name}',
+            styles: const PosStyles(
+                bold: true, height: PosTextSize.size2)));
+        if (i.note != null && i.note!.isNotEmpty) {
+          b.add(gen.text('> ${i.note}',
+              styles: const PosStyles(bold: true)));
+        }
       }
     }
     b.add(gen.hr(ch: '-', linesAfter: 1));

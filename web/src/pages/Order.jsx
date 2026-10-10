@@ -16,7 +16,12 @@ export default function Order() {
   const [orderType, setOrderType] = useState('pickup')
   const [menu, setMenu] = useState([])
   const [store, setStore] = useState(null)
-  const [cart, setCart] = useState({}) // { product_id: qty }
+  const [cart, setCart] = useState({}) // { product_id: qty } — item biasa (minuman)
+  // Seblak prasmanan: porsi yang sudah masuk keranjang + draft racikan aktif.
+  // Satu porsi = 1 jenis kuah (WAJIB) + topping bebas + jumlah porsi.
+  const [portions, setPortions] = useState([])
+  const [draft, setDraft] = useState({ kuahId: null, toppings: {}, qty: 1, note: '' })
+  const [draftError, setDraftError] = useState('')
   const [form, setForm] = useState({ nama: '', noHp: '', tanggal: '', jam: '', alamat: '', catatan: '' })
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -39,10 +44,14 @@ export default function Order() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Kelompokkan menu per kategori untuk ditampilkan berurutan.
+  // Kelompokkan menu per kategori untuk ditampilkan berurutan. Produk kuah &
+  // topping tidak tampil sebagai daftar — keduanya lewat builder porsi.
+  const kuahItems = useMemo(() => menu.filter((m) => m.category_key === 'kuah'), [menu])
+  const toppingItems = useMemo(() => menu.filter((m) => m.category_key === 'topping'), [menu])
   const grouped = useMemo(() => {
     const map = new Map()
     for (const item of menu) {
+      if (item.category_key === 'kuah' || item.category_key === 'topping') continue
       if (!map.has(item.category)) map.set(item.category, [])
       map.get(item.category).push(item)
     }
@@ -52,14 +61,23 @@ export default function Order() {
   const isDineIn = orderType === 'dinein'
   const isDelivery = orderType === 'delivery'
 
+  // Total satu porsi = (harga kuah + total topping) × jumlah porsi.
+  const portionTotal = (p) => {
+    const kuah = kuahItems.find((k) => k.id === p.kuahId)
+    if (!kuah) return 0
+    return (kuah.price + p.toppings.reduce((s, t) => s + t.price * t.qty, 0)) * p.qty
+  }
+
   const cartItems = menu.filter((m) => cart[m.id] > 0).map((m) => ({ ...m, qty: cart[m.id] }))
-  const subtotal = cartItems.reduce((s, it) => s + it.price * it.qty, 0)
+  const subtotal =
+    cartItems.reduce((s, it) => s + it.price * it.qty, 0) +
+    portions.reduce((s, p) => s + portionTotal(p), 0)
   const taxRate = store?.tax_rate ?? 0
   const serviceRate = store?.service_rate ?? 0
   const tax = Math.round(subtotal * taxRate)
   const service = Math.round(subtotal * serviceRate)
   const total = subtotal + tax + service
-  const cartCount = cartItems.reduce((s, it) => s + it.qty, 0)
+  const cartCount = cartItems.reduce((s, it) => s + it.qty, 0) + portions.reduce((s, p) => s + p.qty, 0)
 
   const changeQty = (id, delta) => {
     setCart((prev) => {
@@ -71,6 +89,51 @@ export default function Order() {
     })
   }
 
+  // ---- RACIKAN PORSI ----
+  const toggleDraftTopping = (id) => {
+    setDraft((d) => {
+      const next = { ...d.toppings }
+      if (next[id] > 0) delete next[id]
+      else next[id] = 1
+      return { ...d, toppings: next }
+    })
+  }
+  const changeDraftToppingQty = (id, delta) => {
+    setDraft((d) => {
+      const next = { ...d.toppings }
+      const q = (next[id] || 0) + delta
+      if (q <= 0) delete next[id]
+      else next[id] = q
+      return { ...d, toppings: next }
+    })
+  }
+  const draftTotal = () => {
+    const kuah = kuahItems.find((k) => k.id === draft.kuahId)
+    if (!kuah) return 0
+    const toppingSum = toppingItems.reduce((s, t) => s + (draft.toppings[t.id] || 0) * t.price, 0)
+    return (kuah.price + toppingSum) * draft.qty
+  }
+  // "Tambah Porsi" → porsi masuk keranjang, draft bersih untuk porsi berikutnya.
+  const addPortion = () => {
+    const kuah = kuahItems.find((k) => k.id === draft.kuahId)
+    if (!kuah) {
+      setDraftError('Wajib pilih jenis kuah dulu (Nyemek, Sedang, atau Full Kuah)')
+      return
+    }
+    setPortions((prev) => [
+      ...prev,
+      {
+        kuah,
+        toppings: toppingItems.filter((t) => draft.toppings[t.id] > 0).map((t) => ({ ...t, qty: draft.toppings[t.id] })),
+        qty: draft.qty,
+        note: draft.note.trim() || null,
+      },
+    ])
+    setDraft({ kuahId: null, toppings: {}, qty: 1, note: '' })
+    setDraftError('')
+  }
+  const removePortion = (idx) => setPortions((prev) => prev.filter((_, i) => i !== idx))
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setForm((prev) => ({ ...prev, [name]: value }))
@@ -78,8 +141,8 @@ export default function Order() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (cartItems.length === 0) {
-      setError('Pilih minimal satu menu dulu ya')
+    if (portions.length === 0 && cartItems.length === 0) {
+      setError('Racik minimal satu porsi seblak dulu ya')
       return
     }
     setSubmitting(true)
@@ -90,7 +153,17 @@ export default function Order() {
         customer_phone: tableMode ? null : form.noHp,
         order_type: tableMode ? null : orderType,
         table_id: tableMode ? Number(mejaId) : null,
-        items: cartItems.map((it) => ({ product_id: it.id, qty: it.qty })),
+        items: [
+          // Porsi prasmanan: kuah wajib + topping bebas per porsi
+          ...portions.map((p) => ({
+            kuah_id: p.kuah.id,
+            qty: p.qty,
+            note: p.note,
+            toppings: p.toppings.map((t) => ({ product_id: t.id, qty: t.qty })),
+          })),
+          // Item biasa (minuman)
+          ...cartItems.map((it) => ({ product_id: it.id, qty: it.qty })),
+        ],
         schedule_date: !tableMode && isDineIn ? form.tanggal : null,
         schedule_time: !tableMode && isDineIn ? form.jam : null,
         delivery_address: !tableMode && isDelivery ? form.alamat : null,
@@ -176,6 +249,98 @@ export default function Order() {
             <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
               {/* PILIH MENU */}
               <div className="space-y-8">
+                {/* BUILDER PORSI SEBLAK PRASMANAN — kuah wajib, isi bebas */}
+                <section className="bg-white rounded-2xl border-2 border-chili/30 p-5 md:p-6">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <h2 className="font-display text-2xl uppercase">Racik Porsi Seblakmu</h2>
+                    {portions.length > 0 && (
+                      <span className="text-xs font-bold bg-chili/10 text-chili px-3 py-1 rounded-full">{portions.length} porsi di keranjang</span>
+                    )}
+                  </div>
+                  <p className="text-char/60 text-sm mb-5">
+                    Pilih jenis kuah (wajib), isi topping sesuai selera, tentukan jumlah porsi —
+                    lalu tambahkan lagi untuk porsi berikutnya dengan isian berbeda.
+                  </p>
+
+                  <p className="text-xs font-bold text-char/60 mb-2">1. Jenis Kuah — <span className="text-chili">WAJIB</span></p>
+                  <div className="grid grid-cols-3 gap-2 mb-5">
+                    {kuahItems.map((k) => (
+                      <button
+                        key={k.id}
+                        type="button"
+                        onClick={() => { setDraft((d) => ({ ...d, kuahId: k.id })); setDraftError('') }}
+                        className={`border rounded-xl px-2 py-3 text-center transition-colors ${draft.kuahId === k.id ? 'border-chili bg-chili/5 ring-1 ring-chili' : 'border-black/10 hover:border-chili/50'}`}
+                      >
+                        <p className="font-bold text-xs md:text-sm leading-snug">{k.name}</p>
+                        <p className="text-chili font-bold text-xs mt-1">{rupiah(k.price)}</p>
+                      </button>
+                    ))}
+                    {kuahItems.length === 0 && (
+                      <p className="col-span-3 text-xs text-char/40">Menu belum tersedia — coba lagi nanti.</p>
+                    )}
+                  </div>
+
+                  <p className="text-xs font-bold text-char/60 mb-2">2. Isian / Topping — sesuai selera</p>
+                  <div className="space-y-1.5 mb-5">
+                    {toppingItems.map((t) => {
+                      const qty = draft.toppings[t.id] || 0
+                      return (
+                        <div key={t.id} className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
+                          <button type="button" onClick={() => toggleDraftTopping(t.id)} className="flex-1 text-left min-w-0">
+                            <span className="text-sm font-semibold">{t.name}</span>
+                            <span className="text-xs text-char/50 ml-2">{rupiah(t.price)}</span>
+                          </button>
+                          {qty === 0 ? (
+                            <button type="button" onClick={() => toggleDraftTopping(t.id)} aria-label={`Tambah ${t.name}`} className="w-8 h-8 rounded-full bg-chili text-white font-bold grid place-items-center shrink-0">+</button>
+                          ) : (
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button type="button" onClick={() => changeDraftToppingQty(t.id, -1)} aria-label={`Kurangi ${t.name}`} className="w-8 h-8 rounded-full bg-cream border border-black/10 font-bold grid place-items-center">−</button>
+                              <span className="w-6 text-center font-bold tabular-nums">{qty}</span>
+                              <button type="button" onClick={() => changeDraftToppingQty(t.id, 1)} aria-label={`Tambah ${t.name}`} className="w-8 h-8 rounded-full bg-chili text-white font-bold grid place-items-center">+</button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {toppingItems.length === 0 && (
+                      <p className="text-xs text-char/40">Topping belum tersedia — coba lagi nanti.</p>
+                    )}
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-4 mb-5">
+                    <div>
+                      <p className="text-xs font-bold text-char/60 mb-2">3. Jumlah Porsi</p>
+                      <div className="flex items-center gap-3 border border-black/10 rounded-xl px-3 py-2">
+                        <button type="button" onClick={() => setDraft((d) => ({ ...d, qty: Math.max(1, d.qty - 1) }))} className="w-8 h-8 rounded-full bg-cream border border-black/10 font-bold grid place-items-center">−</button>
+                        <span className="flex-1 text-center font-bold tabular-nums">{draft.qty}</span>
+                        <button type="button" onClick={() => setDraft((d) => ({ ...d, qty: d.qty + 1 }))} className="w-8 h-8 rounded-full bg-chili text-white font-bold grid place-items-center">+</button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-char/60 mb-2">4. Catatan Dapur <span className="font-normal text-char/40">(opsional)</span></p>
+                      <input
+                        type="text"
+                        value={draft.note}
+                        onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value }))}
+                        placeholder="mis. pedas level 3"
+                        className={inputCls}
+                      />
+                    </div>
+                  </div>
+
+                  {draftError && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-2.5 mb-3">{draftError}</p>}
+
+                  <div className="flex items-center gap-4">
+                    <div className="shrink-0">
+                      <p className="text-[11px] text-char/50 font-bold uppercase">Subtotal Porsi</p>
+                      <p className="font-display text-xl text-chili">{rupiah(draftTotal())}</p>
+                    </div>
+                    <button type="button" onClick={addPortion} className="flex-1 bg-chili hover:bg-chili-dark text-white font-bold py-3.5 rounded-full text-sm transition-colors">
+                      Tambah Porsi ke Keranjang
+                    </button>
+                  </div>
+                </section>
+
                 <div className="flex flex-wrap gap-2">
                   {grouped.map(([cat]) => (
                     <a key={cat} href={`#cat-${cat.replace(/\W+/g, '-')}`} className="bg-white border border-black/10 rounded-full px-4 py-2 text-xs font-bold hover:border-chili transition-colors">
@@ -220,28 +385,51 @@ export default function Order() {
               <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-black/5 shadow-sm p-6 space-y-5 lg:sticky lg:top-24" noValidate>
                 <div>
                   <p className="font-display text-xl uppercase mb-3">Pesananmu</p>
-                  {cartItems.length === 0 ? (
-                    <p className="text-sm text-char/40 py-3">Belum ada menu dipilih. Yuk pilih dari daftar di samping 👈</p>
+                  {portions.length === 0 && cartItems.length === 0 ? (
+                    <p className="text-sm text-char/40 py-3">Belum ada pesanan. Racik porsi seblakmu di atas 👆</p>
                   ) : (
-                    <ul className="space-y-2 text-sm">
-                      {cartItems.map((it) => (
-                        <li key={it.id} className="flex justify-between gap-3">
-                          <span className="truncate">{it.qty}× {it.name}</span>
-                          <span className="font-semibold shrink-0">{rupiah(it.price * it.qty)}</span>
-                        </li>
+                    <div className="space-y-3 text-sm">
+                      {portions.map((p, i) => (
+                        <div key={i} className="bg-cream/60 border border-black/5 rounded-xl p-3">
+                          <div className="flex justify-between gap-3">
+                            <span className="font-semibold min-w-0">
+                              Porsi {i + 1} · {p.qty}× {p.kuah.name}
+                            </span>
+                            <span className="font-semibold shrink-0">{rupiah(portionTotal(p))}</span>
+                          </div>
+                          {p.toppings.length > 0 && (
+                            <p className="text-xs text-char/60 mt-1">
+                              {p.toppings.map((t) => `${t.qty > 1 ? `${t.qty}x ` : ''}${t.name}`).join(', ')}
+                            </p>
+                          )}
+                          {p.note && <p className="text-xs text-char/40 mt-0.5">↳ {p.note}</p>}
+                          <button type="button" onClick={() => removePortion(i)} className="text-xs font-bold text-chili hover:underline mt-1.5">
+                            Hapus porsi
+                          </button>
+                        </div>
                       ))}
-                    </ul>
+                      {cartItems.length > 0 && (
+                        <ul className="space-y-2">
+                          {cartItems.map((it) => (
+                            <li key={it.id} className="flex justify-between gap-3">
+                              <span className="truncate">{it.qty}× {it.name}</span>
+                              <span className="font-semibold shrink-0">{rupiah(it.price * it.qty)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {(taxRate > 0 || serviceRate > 0) && cartItems.length > 0 && (
+                {(taxRate > 0 || serviceRate > 0) && (portions.length > 0 || cartItems.length > 0) && (
                   <div className="space-y-1 text-sm text-char/60 border-t border-black/5 pt-4">
                     <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(subtotal)}</span></div>
                     {taxRate > 0 && <div className="flex justify-between"><span>Pajak {Math.round(taxRate * 100)}%</span><span>{rupiah(tax)}</span></div>}
                     {serviceRate > 0 && <div className="flex justify-between"><span>Service {Math.round(serviceRate * 100)}%</span><span>{rupiah(service)}</span></div>}
                   </div>
                 )}
-                {cartItems.length > 0 && (
+                {(portions.length > 0 || cartItems.length > 0) && (
                   <div className="flex justify-between font-bold border-t border-black/5 pt-4">
                     <span>Total</span>
                     <span className="text-chili">{rupiah(total)}</span>

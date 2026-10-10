@@ -16,11 +16,33 @@ class Product {
   const Product(this.id, this.name, this.category, this.price, this.imageUrl);
 }
 
-class _CartLine {
+class _ToppingSel {
   final Product item;
   int qty;
+  _ToppingSel(this.item, this.qty);
+}
+
+/// Baris keranjang: item biasa (minuman) ATAU porsi prasmanan.
+/// Untuk porsi, `item` = produk jenis kuah (kategori 'kuah') dan `toppings`
+/// berisi isian pilihan pelanggan; qty = jumlah porsi.
+class _CartLine {
+  final Product item; // item biasa; utk porsi = produk jenis kuah
+  final bool isPorsi;
+  final List<_ToppingSel> toppings;
+  int qty;
   String? note;
-  _CartLine(this.item, this.qty);
+  _CartLine(this.item, this.qty)
+      : isPorsi = false,
+        toppings = const [];
+  _CartLine.porsi(this.item, this.toppings, this.qty, {this.note})
+      : isPorsi = true;
+
+  /// Total harga satu baris: porsi = (kuah + topping) x jumlah porsi.
+  double get lineTotal {
+    if (!isPorsi) return item.price * qty;
+    return (item.price + toppings.fold(0.0, (s, t) => s + t.item.price * t.qty)) *
+        qty;
+  }
 }
 
 /// POS — mengikuti Pos.jsx web: metode Cash & QRIS saja, konfirmasi dua
@@ -180,6 +202,33 @@ class _PosPageState extends State<PosPage> {
     });
   }
 
+  // Bahan builder porsi seblak prasmanan: jenis kuah (WAJIB) & topping bebas.
+  List<Product> get kuahItems =>
+      menuItems.where((m) => m.category == 'kuah').toList();
+  List<Product> get toppingItems =>
+      menuItems.where((m) => m.category == 'topping').toList();
+
+  /// "Tambah Porsi" — buka sheet racikan: pilih kuah + topping + jumlah porsi.
+  void openPorsiBuilder() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _PorsiBuilderSheet(
+        kuahItems: kuahItems,
+        toppingItems: toppingItems,
+        onAdd: (kuah, toppings, qty, note) {
+          setState(() {
+            cart.add(_CartLine.porsi(kuah, toppings, qty,
+                note: (note == null || note.trim().isEmpty) ? null : note.trim()));
+          });
+        },
+      ),
+    );
+  }
+
   void changeQty(_CartLine line, int delta) {
     setState(() {
       line.qty += delta;
@@ -187,7 +236,7 @@ class _PosPageState extends State<PosPage> {
     });
   }
 
-  double get subtotal => cart.fold(0.0, (s, c) => s + c.item.price * c.qty);
+  double get subtotal => cart.fold(0.0, (s, c) => s + c.lineTotal);
   double get tax => subtotal * taxRate;
   double get service => subtotal * serviceRate;
   double get grandTotal => subtotal + tax + service;
@@ -206,6 +255,31 @@ class _PosPageState extends State<PosPage> {
     setState(() => payModal = {'type': 'confirm', 'stage': 1});
   }
 
+  /// Payload items untuk POST /orders: porsi prasmanan
+  /// {kuah_id, qty, note, toppings:[{product_id, qty}]} dan item biasa
+  /// {product_id, qty, note}.
+  List<Map<String, dynamic>> _itemsPayload() => [
+        for (final c in cart)
+          if (c.isPorsi)
+            {
+              'kuah_id': c.item.id,
+              'qty': c.qty,
+              'note':
+                  (c.note?.trim().isEmpty ?? true) ? null : c.note!.trim(),
+              'toppings': [
+                for (final t in c.toppings)
+                  {'product_id': t.item.id, 'qty': t.qty},
+              ],
+            }
+          else
+            {
+              'product_id': c.item.id,
+              'qty': c.qty,
+              'note':
+                  (c.note?.trim().isEmpty ?? true) ? null : c.note!.trim(),
+            },
+      ];
+
   Future<void> createOrder() async {
     setState(() {
       submitting = true;
@@ -213,14 +287,7 @@ class _PosPageState extends State<PosPage> {
     });
     try {
       final order = await api.post('/orders', {
-        'items': cart
-            .map((c) => {
-                  'product_id': c.item.id,
-                  'qty': c.qty,
-                  'note':
-                      (c.note?.trim().isEmpty ?? true) ? null : c.note!.trim(),
-                })
-            .toList(),
+        'items': _itemsPayload(),
         'pay_method': payMethod,
         'channel': 'pos',
       });
@@ -245,14 +312,7 @@ class _PosPageState extends State<PosPage> {
     });
     try {
       final order = await api.post('/orders', {
-        'items': cart
-            .map((c) => {
-                  'product_id': c.item.id,
-                  'qty': c.qty,
-                  'note':
-                      (c.note?.trim().isEmpty ?? true) ? null : c.note!.trim(),
-                })
-            .toList(),
+        'items': _itemsPayload(),
         'pay_method': 'qris',
         'channel': 'pos',
         'pending': true,
@@ -361,10 +421,10 @@ class _PosPageState extends State<PosPage> {
 
   void _showReceipt(Map<String, dynamic> o) {
     // Keranjang dikosongkan SEKARANG — saat pesanan sudah tersimpan — bukan
-    // saat dialog ditutup. Item struk sudah ditangkap ke `lines`, sehingga
-    // tombol "Pesanan Baru" MAUPUN tombol back meninggalkan keranjang kosong
-    // (perilaku closeReceipt() di web Pos.jsx:231-235).
-    final lines = List<_CartLine>.of(cart);
+    // saat dialog ditutup. Baris struk diambil dari respons server
+    // (berisi porsi_no/item_role), sehingga struk baru & cetak ulang dari
+    // antrian memakai jalur yang sama. Tombol "Pesanan Baru" MAUPUN tombol
+    // back meninggalkan keranjang kosong (perilaku closeReceipt() web).
     setState(() => cart.clear());
     _loadShift();
     showDialog(
@@ -373,12 +433,12 @@ class _PosPageState extends State<PosPage> {
       builder: (_) => _ReceiptDialog(
         receipt: o,
         cashier: widget.user.name,
-        lines: lines,
+        items: _itemsFromOrder(o),
         storeName: storeName,
         storeAddress: storeAddress,
         storePhone: storePhone,
         storeFooter: storeFooter,
-        onPrint: (kind) => _printOrder(kind, o, lines),
+        onPrint: (kind) => _printOrder(kind, o),
         onClose: () => Navigator.pop(context),
       ),
     );
@@ -392,26 +452,14 @@ class _PosPageState extends State<PosPage> {
     return '${s.substring(0, 10).split('-').reversed.join('/')} ${s.substring(11, 16).replaceAll(':', '.')}';
   }
 
-  /// Cetak dari struk baru — item diambil dari snapshot keranjang `lines`
-  /// (bukan `cart`, yang sudah dikosongkan saat struk muncul).
-  Future<void> _printOrder(
-      String kind, Map<String, dynamic> o, List<_CartLine> lines) async {
-    final items = [
-      for (final l in lines) ThermalItem(l.qty, l.item.name, l.item.price, l.note),
-    ];
-    await _doPrint(kind, o, items, cashierOverride: widget.user.name);
-  }
-
-  /// Cetak ulang dari antrian — ambil detail pesanan dulu (padanan
-  /// printFromQueue() Pos.jsx:303-325).
-  Future<void> _printFromQueue(Map<String, dynamic> o, String kind) async {
-    try {
-      final detail =
-          Map<String, dynamic>.from(await api.get('/orders/${o['id']}') as Map);
-      final items = [
-        for (final i in (detail['items'] as List? ?? []))
+  /// Konversi baris order dari respons/detail pesanan server menjadi
+  /// ThermalItem — menyertakan porsi_no & item_role untuk pengelompokan
+  /// porsi prasmanan di struk/resep dapur.
+  List<ThermalItem> _itemsFromOrder(Map<String, dynamic> o) => [
+        for (final i in (o['items'] as List? ?? []))
           ...() {
             final m = Map<String, dynamic>.from(i as Map);
+            final role = '${m['item_role'] ?? ''}';
             return [
               ThermalItem(
                   int.tryParse('${m['qty']}') ?? 0,
@@ -419,11 +467,29 @@ class _PosPageState extends State<PosPage> {
                   (num.tryParse('${m['unit_price']}') ?? 0).toDouble(),
                   m['note'] == null || '${m['note']}'.isEmpty || '${m['note']}' == 'null'
                       ? null
-                      : '${m['note']}'),
+                      : '${m['note']}',
+                  porsiNo: m['porsi_no'] == null
+                      ? null
+                      : int.tryParse('${m['porsi_no']}'),
+                  role: role.isEmpty || role == 'null' ? null : role),
             ];
           }(),
       ];
-      await _doPrint(kind, detail, items,
+
+  /// Cetak dari struk baru — item diambil dari respons pesanan (bukan `cart`,
+  /// yang sudah dikosongkan saat struk muncul).
+  Future<void> _printOrder(String kind, Map<String, dynamic> o) async {
+    await _doPrint(kind, o, _itemsFromOrder(o),
+        cashierOverride: widget.user.name);
+  }
+
+  /// Cetak ulang dari antrian — ambil detail pesanan dulu (padanan
+  /// printFromQueue() Pos.jsx).
+  Future<void> _printFromQueue(Map<String, dynamic> o, String kind) async {
+    try {
+      final detail =
+          Map<String, dynamic>.from(await api.get('/orders/${o['id']}') as Map);
+      await _doPrint(kind, detail, _itemsFromOrder(detail),
           cashierOverride: '${detail['cashier_name'] ?? widget.user.name}');
     } catch (e) {
       if (mounted) {
@@ -654,6 +720,9 @@ class _PosPageState extends State<PosPage> {
   Widget _menuColumn({required bool shrinkWrap}) {
     final menuList = menuItems
         .where((m) =>
+            // Porsi prasmanan (kuah/topping) hanya via builder, bukan grid.
+            m.category != 'kuah' &&
+            m.category != 'topping' &&
             (activeCat == 'semua' || m.category == activeCat) &&
             m.name.toLowerCase().contains(search.toLowerCase()))
         .toList();
@@ -768,6 +837,7 @@ class _PosPageState extends State<PosPage> {
         ),
       ),
       const SizedBox(height: 12),
+      _porsiTile(),
       grid,
     ]);
 
@@ -816,6 +886,7 @@ class _PosPageState extends State<PosPage> {
         ),
       ),
       const SizedBox(height: 12),
+      _porsiTile(),
       Expanded(child: GridView.count(
         crossAxisCount: 3,
         mainAxisSpacing: 12,
@@ -823,6 +894,8 @@ class _PosPageState extends State<PosPage> {
         childAspectRatio: 1.25,
         children: menuItems
             .where((m) =>
+                m.category != 'kuah' &&
+                m.category != 'topping' &&
                 (activeCat == 'semua' || m.category == activeCat) &&
                 m.name.toLowerCase().contains(search.toLowerCase()))
             .map((m) => _menuCard(m))
@@ -879,6 +952,53 @@ class _PosPageState extends State<PosPage> {
       ),
     );
   }
+
+  /// Tile pembuka builder porsi seblak — tampil di atas grid menu.
+  Widget _porsiTile() => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: AppColors.chili.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: openPorsiBuilder,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: AppColors.chili.withValues(alpha: 0.4)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                      color: AppColors.chili,
+                      borderRadius: BorderRadius.circular(10)),
+                  child:
+                      const Icon(Icons.add, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Porsi Seblak Prasmanan',
+                            style: AppText.body(
+                                size: 13, weight: FontWeight.w700)),
+                        Text(
+                            'Racik kuah (Nyemek/Sedang/Full Kuah) + topping sesuai selera',
+                            style: AppText.body(
+                                size: 11, color: Colors.black45)),
+                      ]),
+                ),
+                const Icon(Icons.chevron_right, color: AppColors.chili),
+              ]),
+            ),
+          ),
+        ),
+      );
 
   Widget _shiftBar() {
     final active = shift != null;
@@ -951,7 +1071,14 @@ class _PosPageState extends State<PosPage> {
     );
   }
 
-  Widget _cartCard() => Container(
+  Widget _cartCard() {
+    // Penomoran porsi mengikuti urutan baris porsi di keranjang.
+    final porsiNo = <_CartLine, int>{};
+    var porsiCounter = 0;
+    for (final l in cart) {
+      if (l.isPorsi) porsiNo[l] = ++porsiCounter;
+    }
+    return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1000,13 +1127,21 @@ class _PosPageState extends State<PosPage> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(line.item.name,
+                                  Text(
+                                      line.isPorsi
+                                          ? '${line.qty}x ${line.item.name}'
+                                          : line.item.name,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: AppText.body(
                                           size: 13,
                                           weight: FontWeight.w600)),
-                                  Text(formatRp(line.item.price),
+                                  Text(
+                                      line.isPorsi
+                                          ? 'Porsi ${porsiNo[line]} · ${line.toppings.isEmpty ? 'tanpa topping' : line.toppings.map((t) => '${t.qty > 1 ? '${t.qty}x ' : ''}${t.item.name}').join(', ')}'
+                                          : formatRp(line.item.price),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                       style: AppText.body(
                                           size: 11, color: Colors.black45)),
                                 ]),
@@ -1026,8 +1161,7 @@ class _PosPageState extends State<PosPage> {
                           const SizedBox(width: 8),
                           SizedBox(
                             width: 80,
-                            child: Text(
-                                formatRp(line.item.price * line.qty),
+                            child: Text(formatRp(line.lineTotal),
                                 textAlign: TextAlign.right,
                                 style: AppText.body(
                                     size: 12, weight: FontWeight.w700)),
@@ -1044,6 +1178,17 @@ class _PosPageState extends State<PosPage> {
                             ),
                           ),
                         ]),
+                        if (line.isPorsi && line.toppings.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                                line.toppings
+                                    .map((t) =>
+                                        '+ ${t.qty > 1 ? '${t.qty}x ' : ''}${t.item.name}')
+                                    .join('  '),
+                                style: AppText.body(
+                                    size: 10, color: Colors.black45)),
+                          ),
                         if (line.note != null)
                           Align(
                             alignment: Alignment.centerLeft,
@@ -1125,6 +1270,7 @@ class _PosPageState extends State<PosPage> {
           ],
         ),
       );
+  }
 
   Widget _totalRow(String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1725,11 +1871,12 @@ class _QueueSheetState extends State<_QueueSheet> {
       {'cash': 'Cash', 'qris': 'QRIS', 'debit': 'Debit/Kredit'}['$m'] ?? '$m';
 }
 
-/// Struk setelah pesanan lunas.
+/// Struk setelah pesanan lunas. Baris item dari server (ThermalItem dengan
+/// porsi_no/item_role) — porsi prasmanan tampil berkelompok.
 class _ReceiptDialog extends StatelessWidget {
   final Map<String, dynamic> receipt;
   final String cashier;
-  final List<_CartLine> lines;
+  final List<ThermalItem> items;
   final String storeName, storeAddress, storePhone, storeFooter;
   final void Function(String kind) onPrint;
   final VoidCallback onClose;
@@ -1737,7 +1884,7 @@ class _ReceiptDialog extends StatelessWidget {
   const _ReceiptDialog({
     required this.receipt,
     required this.cashier,
-    required this.lines,
+    required this.items,
     required this.storeName,
     required this.storeAddress,
     required this.storePhone,
@@ -1776,14 +1923,31 @@ class _ReceiptDialog extends StatelessWidget {
             _row('Tanggal',
                 created.length >= 16 ? created.substring(0, 16) : created),
             dashed(),
-            for (final l in lines) ...[
-              _row('${l.qty}x ${l.item.name}', formatRp(l.item.price * l.qty)),
-              if (l.note != null)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('↳ ${l.note}',
-                      style: AppText.body(size: 10, color: Colors.black45)),
+            for (final it in items) ...[
+              if (it.role == 'kuah') ...[
+                _row('${it.qty}x ${it.name} (Porsi ${it.porsiNo})',
+                    formatRp(it.price * it.qty)),
+                if (it.note != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('↳ ${it.note}',
+                        style: AppText.body(size: 10, color: Colors.black45)),
+                  ),
+              ] else if (it.role == 'topping') ...[
+                Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: _row('+ ${it.qty}x ${it.name}',
+                      formatRp(it.price * it.qty)),
                 ),
+              ] else ...[
+                _row('${it.qty}x ${it.name}', formatRp(it.price * it.qty)),
+                if (it.note != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('↳ ${it.note}',
+                        style: AppText.body(size: 10, color: Colors.black45)),
+                  ),
+              ],
             ],
             dashed(),
             _row('Subtotal', formatRp(receipt['subtotal'] ?? 0)),
@@ -1865,10 +2029,17 @@ class _ReceiptDialog extends StatelessWidget {
     buf.writeln('No: ${receipt['order_no']}');
     buf.writeln('Kasir: $cashier');
     buf.writeln();
-    for (final l in lines) {
-      buf.writeln(
-          '${l.qty}x ${l.item.name} — ${formatRp(l.item.price * l.qty)}');
-      if (l.note != null) buf.writeln('    catatan: ${l.note}');
+    for (final it in items) {
+      if (it.role == 'kuah') {
+        buf.writeln(
+            '${it.qty}x ${it.name} (Porsi ${it.porsiNo}) - ${formatRp(it.price * it.qty)}');
+        if (it.note != null) buf.writeln('    catatan: ${it.note}');
+      } else if (it.role == 'topping') {
+        buf.writeln('    + ${it.qty}x ${it.name} - ${formatRp(it.price * it.qty)}');
+      } else {
+        buf.writeln('${it.qty}x ${it.name} - ${formatRp(it.price * it.qty)}');
+        if (it.note != null) buf.writeln('    catatan: ${it.note}');
+      }
     }
     buf.writeln();
     buf.writeln('Subtotal: ${formatRp(receipt['subtotal'] ?? 0)}');
@@ -1911,4 +2082,339 @@ class _ReceiptDialog extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// Sheet racikan porsi seblak prasmanan — padanan builder Porsi di web
+/// (Pos.jsx & Order.jsx): jenis kuah WAJIB dipilih (Nyemek/Sedang/Full
+/// Kuah), topping bebas dengan jumlah, atur jumlah porsi, catatan dapur.
+class _PorsiBuilderSheet extends StatefulWidget {
+  final List<Product> kuahItems;
+  final List<Product> toppingItems;
+  final void Function(
+          Product kuah, List<_ToppingSel> toppings, int qty, String? note)
+      onAdd;
+
+  const _PorsiBuilderSheet({
+    required this.kuahItems,
+    required this.toppingItems,
+    required this.onAdd,
+  });
+
+  @override
+  State<_PorsiBuilderSheet> createState() => _PorsiBuilderSheetState();
+}
+
+class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
+  Product? kuah;
+  final Map<int, int> toppings = {}; // product_id topping -> qty
+  int qty = 1;
+  final noteCtrl = TextEditingController();
+  String? error;
+
+  double get total {
+    if (kuah == null) return 0;
+    final toppingSum = widget.toppingItems
+        .fold(0.0, (s, t) => s + (toppings[t.id] ?? 0) * t.price);
+    return (kuah!.price + toppingSum) * qty;
+  }
+
+  void _toggleTopping(Product t) {
+    setState(() {
+      if (toppings[t.id] != null) {
+        toppings.remove(t.id);
+      } else {
+        toppings[t.id] = 1;
+      }
+    });
+  }
+
+  void _changeToppingQty(Product t, int delta) {
+    setState(() {
+      final q = (toppings[t.id] ?? 0) + delta;
+      if (q <= 0) {
+        toppings.remove(t.id);
+      } else {
+        toppings[t.id] = q;
+      }
+    });
+  }
+
+  void _submit() {
+    if (kuah == null) {
+      setState(() =>
+          error = 'Wajib pilih jenis kuah dulu (Nyemek, Sedang, atau Full Kuah)');
+      return;
+    }
+    final sel = [
+      for (final t in widget.toppingItems)
+        if (toppings[t.id] != null) _ToppingSel(t, toppings[t.id]!),
+    ];
+    widget.onAdd(kuah!, sel, qty, noteCtrl.text);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget step(String title, {String? accent}) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text.rich(
+            TextSpan(
+              text: title,
+              style: AppText.body(size: 12, weight: FontWeight.w700,
+                  color: Colors.black54),
+              children: accent == null
+                  ? null
+                  : [
+                      TextSpan(
+                          text: ' — $accent',
+                          style: AppText.body(
+                              size: 12,
+                              weight: FontWeight.w700,
+                              color: AppColors.chili)),
+                    ],
+            ),
+          ),
+        );
+
+    Widget qtyButton(IconData icon, VoidCallback onTap,
+            {bool filled = false}) =>
+        InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: filled ? AppColors.chili : Colors.transparent,
+              border: Border.all(
+                  color: filled ? AppColors.chili : Colors.black26),
+            ),
+            child: Icon(icon,
+                size: 15,
+                color: filled ? Colors.white : Colors.black87),
+          ),
+        );
+
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('RACIK PORSI SEBLAK',
+                          style: AppText.display(size: 18)),
+                      Text(
+                          'Kuah wajib dipilih, isi topping sesuai selera pembeli',
+                          style: AppText.body(size: 11, color: Colors.black45)),
+                    ]),
+              ),
+              IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close)),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              children: [
+                step('1. Jenis Kuah', accent: 'WAJIB'),
+                if (widget.kuahItems.isEmpty)
+                  Text(
+                      'Belum ada jenis kuah — tambahkan produk berkategori "Jenis Kuah" di halaman Menu.',
+                      style: AppText.body(size: 11, color: Colors.black26))
+                else
+                  for (final k in widget.kuahItems)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => setState(() {
+                          kuah = k;
+                          error = null;
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: kuah?.id == k.id
+                                    ? AppColors.chili
+                                    : Colors.black12),
+                            color: kuah?.id == k.id
+                                ? AppColors.chili.withValues(alpha: 0.06)
+                                : Colors.transparent,
+                          ),
+                          child: Row(children: [
+                            Icon(
+                              kuah?.id == k.id
+                                  ? Icons.check_circle
+                                  : Icons.radio_button_unchecked,
+                              size: 20,
+                              color: kuah?.id == k.id
+                                  ? AppColors.chili
+                                  : Colors.black26,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(k.name,
+                                  style: AppText.body(size: 13,
+                                      weight: FontWeight.w600)),
+                            ),
+                            Text(formatRp(k.price),
+                                style: AppText.body(size: 12,
+                                    weight: FontWeight.w700,
+                                    color: AppColors.chili)),
+                          ]),
+                        ),
+                      ),
+                    ),
+                const SizedBox(height: 12),
+                step('2. Isian / Topping', accent: 'sesuai selera'),
+                if (widget.toppingItems.isEmpty)
+                  Text(
+                      'Belum ada topping — tambahkan produk berkategori "Topping Seblak" di halaman Menu.',
+                      style: AppText.body(size: 11, color: Colors.black26))
+                else
+                  for (final t in widget.toppingItems)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: (toppings[t.id] ?? 0) > 0
+                                  ? AppColors.chili
+                                  : Colors.black12),
+                          color: (toppings[t.id] ?? 0) > 0
+                              ? AppColors.chili.withValues(alpha: 0.06)
+                              : Colors.transparent,
+                        ),
+                        child: Row(children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _toggleTopping(t),
+                              child: Row(children: [
+                                Icon(
+                                  (toppings[t.id] ?? 0) > 0
+                                      ? Icons.check_box
+                                      : Icons.check_box_outline_blank,
+                                  size: 20,
+                                  color: (toppings[t.id] ?? 0) > 0
+                                      ? AppColors.chili
+                                      : Colors.black26,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(t.name, style:
+                                    AppText.body(size: 13, weight:
+                                        FontWeight.w600)),
+                                const SizedBox(width: 8),
+                                Text(formatRp(t.price), style:
+                                    AppText.body(size: 11,
+                                        color: Colors.black45)),
+                              ]),
+                            ),
+                          ),
+                          if ((toppings[t.id] ?? 0) == 0)
+                            qtyButton(Icons.add, () => _toggleTopping(t),
+                                filled: true)
+                          else ...[
+                            qtyButton(Icons.remove,
+                                () => _changeToppingQty(t, -1)),
+                            SizedBox(
+                                width: 26,
+                                child: Text('${toppings[t.id]}',
+                                    textAlign: TextAlign.center,
+                                    style: AppText.body(size: 13,
+                                        weight: FontWeight.w700))),
+                            qtyButton(Icons.add,
+                                () => _changeToppingQty(t, 1),
+                                filled: true),
+                          ],
+                        ]),
+                      ),
+                    ),
+                const SizedBox(height: 12),
+                step('3. Jumlah Porsi & Catatan Dapur'),
+                Row(children: [
+                  qtyButton(
+                      Icons.remove,
+                      () => setState(
+                          () => qty = qty > 1 ? qty - 1 : 1)),
+                  SizedBox(
+                      width: 44,
+                      child: Text('$qty porsi',
+                          textAlign: TextAlign.center,
+                          style: AppText.body(size: 12,
+                              weight: FontWeight.w700))),
+                  qtyButton(Icons.add,
+                      () => setState(() => qty++), filled: true),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: noteCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'mis. pedas level 3',
+                        isDense: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            decoration: const BoxDecoration(
+              color: AppColors.cream,
+              borderRadius:
+                  BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(children: [
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(error!,
+                        style: AppText.body(size: 11,
+                            weight: FontWeight.w700,
+                            color: AppColors.chili)),
+                  ),
+                ),
+              Row(children: [
+                Column(crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('SUBTOTAL PORSI', style: AppText.body(size: 10,
+                          weight: FontWeight.w700,
+                          color: Colors.black45)),
+                      Text(formatRp(total), style: AppText.display(
+                          size: 20, color: AppColors.chili)),
+                    ]),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: primaryButton('Tambah ke Keranjang',
+                      onPressed: _submit),
+                ),
+              ]),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 }

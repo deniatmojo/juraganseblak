@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
-import { nextOrderNo } from './orders.js';
+import { nextOrderNo, parseOrderItems } from './orders.js';
 
 // Router pesanan online (publik — dipasang SEBELUM guard auth global di
 // index.js). Endpoint pelanggan (menu, buat pesanan, lacak) terbuka tanpa
@@ -40,10 +40,12 @@ router.get('/store', async (_req, res, next) => {
 });
 
 // GET /api/online/menu — daftar menu aktif & tersedia untuk dipesan online.
+// category_key dipakai halaman pemesanan membedakan porsi prasmanan
+// (kuah/topping) dari item biasa (minuman).
 router.get('/menu', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT p.id, p.name, p.price, p.image_url, c.label AS category
+      `SELECT p.id, p.name, p.price, p.image_url, c.label AS category, c.\`key\` AS category_key
        FROM products p JOIN categories c ON c.id = p.category_id
        WHERE p.is_active = 1 AND p.is_available = 1
        ORDER BY c.sort_order, p.id`
@@ -158,6 +160,9 @@ router.post('/orders', async (req, res, next) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Keranjang kosong' });
     }
+    const parsed = parseOrderItems(items);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const lines = parsed.lines;
     if (effectiveType === 'delivery' && !delivery_address?.trim()) {
       return res.status(400).json({ error: 'Alamat pengiriman wajib diisi' });
     }
@@ -171,21 +176,32 @@ router.post('/orders', async (req, res, next) => {
 
     await conn.beginTransaction();
 
-    const ids = items.map((i) => Number(i.product_id));
+    // Harga + kategori produk terbaru dari DB (validasi peran kuah/topping).
     const [products] = await conn.query(
-      `SELECT id, name, price FROM products WHERE id IN (?) AND is_active = 1 AND is_available = 1`,
-      [ids]
+      `SELECT p.id, p.name, p.price, c.\`key\` AS category_key
+       FROM products p JOIN categories c ON c.id = p.category_id
+       WHERE p.id IN (?) AND p.is_active = 1 AND p.is_available = 1`,
+      [lines.map((l) => l.product_id)]
     );
     const byId = Object.fromEntries(products.map((p) => [p.id, p]));
-    for (const it of items) {
-      if (!byId[Number(it.product_id)]) {
+    for (const l of lines) {
+      const p = byId[l.product_id];
+      if (!p) {
         await conn.rollback();
         return res.status(400).json({ error: 'Ada menu yang tidak tersedia, muat ulang halaman' });
+      }
+      if (l.item_role === 'kuah' && p.category_key !== 'kuah') {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Jenis kuah tidak valid — pilih dari daftar Jenis Kuah' });
+      }
+      if (l.item_role === 'topping' && p.category_key !== 'topping') {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Topping tidak valid — pilih dari daftar Topping Seblak' });
       }
     }
 
     const settings = await getSettings();
-    const subtotal = items.reduce((sum, it) => sum + Number(byId[Number(it.product_id)].price) * Number(it.qty || 0), 0);
+    const subtotal = lines.reduce((sum, l) => sum + Number(byId[l.product_id].price) * l.qty, 0);
     if (!(subtotal > 0)) {
       await conn.rollback();
       return res.status(400).json({ error: 'Jumlah pesanan tidak valid' });
@@ -214,14 +230,13 @@ router.post('/orders', async (req, res, next) => {
     const orderId = orderResult.insertId;
 
     const orderItems = [];
-    for (const it of items) {
-      const p = byId[Number(it.product_id)];
-      const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+    for (const l of lines) {
+      const p = byId[l.product_id];
       await conn.query(
-        'INSERT INTO order_items (order_id, product_id, qty, unit_price, note) VALUES (:o, :p, :q, :up, :n)',
-        { o: orderId, p: p.id, q: qty, up: p.price, n: it.note || null }
+        'INSERT INTO order_items (order_id, product_id, qty, unit_price, note, porsi_no, item_role) VALUES (:o, :p, :q, :up, :n, :porsi, :role)',
+        { o: orderId, p: p.id, q: l.qty, up: p.price, n: l.note, porsi: l.porsi_no, role: l.item_role }
       );
-      orderItems.push({ product_id: p.id, name: p.name, qty, unit_price: Number(p.price) });
+      orderItems.push({ product_id: p.id, name: p.name, qty: l.qty, unit_price: Number(p.price), note: l.note, porsi_no: l.porsi_no, item_role: l.item_role });
     }
 
     await conn.commit();
@@ -272,7 +287,7 @@ router.get('/track/:orderNo', async (req, res, next) => {
       return res.status(404).json({ error: 'Pesanan tidak ditemukan' });
     }
     const [items] = await pool.query(
-      'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id',
+      'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note, oi.porsi_no, oi.item_role FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id ORDER BY oi.id',
       { id: order.id }
     );
     res.json({

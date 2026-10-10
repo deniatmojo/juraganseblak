@@ -35,8 +35,44 @@ export async function nextOrderNo(conn) {
   return prefix + String(next).padStart(4, '0');
 }
 
+// Ubah payload `items` (campuran item biasa & porsi prasmanan) menjadi daftar
+// baris order_items flat. Porsi prasmanan: { kuah_id, qty, note?, toppings?:
+// [{ product_id, qty? }] } — kuah WAJIB (Nyemek/Sedang/Full Kuah); qty tiap
+// topping dikali qty porsi. Item biasa (minuman dll): { product_id, qty, note? }.
+// Dipakai bersama POST /api/orders dan POST /api/online/orders.
+export function parseOrderItems(items) {
+  const lines = [];
+  let porsiNo = 0;
+  for (const it of items) {
+    const isPortion = it.kuah_id != null || Array.isArray(it.toppings);
+    const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+    if (!isPortion) {
+      lines.push({ product_id: Number(it.product_id), qty, note: it.note || null, porsi_no: null, item_role: null });
+      continue;
+    }
+    const kuahId = Number(it.kuah_id);
+    if (!kuahId) {
+      return { error: 'Setiap porsi wajib memilih jenis kuah (Nyemek, Sedang, atau Full Kuah)' };
+    }
+    porsiNo += 1;
+    lines.push({ product_id: kuahId, qty, note: it.note || null, porsi_no: porsiNo, item_role: 'kuah' });
+    // Topping ganda (produk sama) digabung lalu dikali jumlah porsi.
+    const merged = new Map();
+    for (const t of it.toppings || []) {
+      const pid = Number(t.product_id);
+      if (!pid) return { error: 'Ada topping yang tidak valid pada porsi' };
+      merged.set(pid, (merged.get(pid) || 0) + Math.max(1, Math.floor(Number(t.qty || 1))));
+    }
+    for (const [pid, toppingQty] of merged) {
+      lines.push({ product_id: pid, qty: toppingQty * qty, note: null, porsi_no: porsiNo, item_role: 'topping' });
+    }
+  }
+  return { lines };
+}
+
 // POST /api/orders — checkout POS.
-// Body: { items: [{ product_id, qty, note? }], pay_method, paid_amount?,
+// Body: { items: [{ product_id, qty, note? } | { kuah_id, qty, note?,
+//         toppings: [{ product_id, qty? }] }], pay_method, paid_amount?,
 //         customer_name?, table_no?, channel?, discount?, pending? }
 // Harga/pajak/service SELALU dihitung ulang server-side dari DB.
 // pending=true (QRIS dinamis via gateway): pesanan disimpan 'pending', stok &
@@ -51,29 +87,43 @@ router.post('/', async (req, res, next) => {
     if (!['cash', 'qris', 'debit'].includes(pay_method)) {
       return res.status(400).json({ error: 'Metode bayar tidak valid' });
     }
+    const parsed = parseOrderItems(items);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const lines = parsed.lines;
 
     await conn.beginTransaction();
 
-    // Ambil harga produk terbaru dari DB (+ mapping bahan untuk sinkron stok)
-    const ids = items.map((i) => Number(i.product_id));
+    // Ambil harga + kategori produk terbaru dari DB (validasi peran & sinkron stok)
+    const ids = lines.map((l) => l.product_id);
     const [products] = await conn.query(
-      `SELECT id, name, price, stock_item_id, stock_qty_per_unit FROM products WHERE id IN (?) AND is_active = 1 AND is_available = 1`,
+      `SELECT p.id, p.name, p.price, p.stock_item_id, p.stock_qty_per_unit, c.\`key\` AS category_key
+       FROM products p JOIN categories c ON c.id = p.category_id
+       WHERE p.id IN (?) AND p.is_active = 1 AND p.is_available = 1`,
       [ids]
     );
     const byId = Object.fromEntries(products.map((p) => [p.id, p]));
-    // Relasi menu↔bahan (multi-bahan per menu) untuk pemotongan stok.
-    const productLinks = await linksForProducts(products.map((p) => p.id));
-    for (const it of items) {
-      if (!byId[Number(it.product_id)]) {
+    for (const l of lines) {
+      const p = byId[l.product_id];
+      if (!p) {
         await conn.rollback();
-        return res.status(400).json({ error: `Produk ${it.product_id} tidak tersedia` });
+        return res.status(400).json({ error: `Menu ${l.product_id} tidak tersedia, muat ulang halaman` });
+      }
+      if (l.item_role === 'kuah' && p.category_key !== 'kuah') {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Jenis kuah tidak valid — pilih dari daftar Jenis Kuah' });
+      }
+      if (l.item_role === 'topping' && p.category_key !== 'topping') {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Topping tidak valid — pilih dari daftar Topping Seblak' });
       }
     }
+    // Relasi menu↔bahan (multi-bahan per menu) untuk pemotongan stok.
+    const productLinks = await linksForProducts(ids);
 
     const settings = await getSettings();
     // QRIS dinamis via gateway hanya kalau gateway aktif & kasir minta pending.
     const isPending = pending === true && pay_method === 'qris' && settings.payment_gateway && settings.payment_gateway !== 'none';
-    const subtotal = items.reduce((sum, it) => sum + Number(byId[it.product_id].price) * it.qty, 0);
+    const subtotal = lines.reduce((sum, l) => sum + Number(byId[l.product_id].price) * l.qty, 0);
     const tax = Math.round(subtotal * settings.tax_rate);
     const service = Math.round(subtotal * settings.service_rate);
     const total = subtotal + tax + service - Number(discount);
@@ -96,20 +146,20 @@ router.post('/', async (req, res, next) => {
     const orderId = orderResult.insertId;
 
     const orderItems = [];
-    for (const it of items) {
-      const p = byId[it.product_id];
+    for (const l of lines) {
+      const p = byId[l.product_id];
       await conn.query(
-        'INSERT INTO order_items (order_id, product_id, qty, unit_price, note) VALUES (:o, :p, :q, :up, :n)',
-        { o: orderId, p: p.id, q: it.qty, up: p.price, n: it.note || null }
+        'INSERT INTO order_items (order_id, product_id, qty, unit_price, note, porsi_no, item_role) VALUES (:o, :p, :q, :up, :n, :porsi, :role)',
+        { o: orderId, p: p.id, q: l.qty, up: p.price, n: l.note, porsi: l.porsi_no, role: l.item_role }
       );
-      orderItems.push({ product_id: p.id, name: p.name, qty: it.qty, unit_price: Number(p.price), note: it.note || null });
+      orderItems.push({ product_id: p.id, name: p.name, qty: l.qty, unit_price: Number(p.price), note: l.note, porsi_no: l.porsi_no, item_role: l.item_role });
 
       if (isPending) continue; // stok dipotong saat pesanan dilunaskan (finalize.js)
 
       // Kurangi SEMUA bahan baku terhubung ke menu ini (bisa lebih dari satu —
-      // mis. kerupuk + cabai + bumbu). Bahan pertama tersimpan juga di kolom
-      // lama products.stock_item_id; fallback ke bahan bernama sama bila menu
-      // belum punya link sama sekali.
+      // mis. bumbu kuah + kerupuk + telur). Bahan pertama tersimpan juga di
+      // kolom lama products.stock_item_id; fallback ke bahan bernama sama bila
+      // menu belum punya link sama sekali.
       let links = productLinks.get(p.id) || [];
       if (!links.length) {
         const [byName] = await conn.query(
@@ -119,13 +169,13 @@ router.post('/', async (req, res, next) => {
           links = [{ stock_item_id: byName[0].id, qty_per_unit: Number(p.stock_qty_per_unit || 1) }];
         }
       }
-      for (const l of links) {
-        const used = Number(l.qty_per_unit) * it.qty;
+      for (const link of links) {
+        const used = Number(link.qty_per_unit) * l.qty;
         if (!(used > 0)) continue;
-        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: l.stock_item_id });
+        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: link.stock_item_id });
         await conn.query(
           `INSERT INTO stock_movements (item_id, type, qty, note, created_by) VALUES (:item, 'out', :used, :note, :user)`,
-          { item: l.stock_item_id, used, note: `Penjualan ${orderNo}`, user: req.user?.id ?? null }
+          { item: link.stock_item_id, used, note: `Penjualan ${orderNo}`, user: req.user?.id ?? null }
         );
       }
     }
@@ -184,7 +234,13 @@ router.get('/', async (req, res, next) => {
               o.customer_phone, o.order_type, o.schedule_at, o.delivery_address,
               o.customer_note, o.progress, o.progress_updated_at,
               u.name AS cashier_name, o.created_at,
-              (SELECT GROUP_CONCAT(CONCAT(oi.qty, 'x ', p.name) SEPARATOR ', ')
+              (SELECT GROUP_CONCAT(
+                 CASE WHEN oi.item_role = 'kuah'
+                      THEN CONCAT('Porsi ', oi.porsi_no, ': ', oi.qty, 'x ', p.name)
+                      WHEN oi.item_role = 'topping'
+                      THEN CONCAT('+ ', oi.qty, 'x ', p.name, ' (Porsi ', oi.porsi_no, ')')
+                      ELSE CONCAT(oi.qty, 'x ', p.name) END
+                 ORDER BY oi.id SEPARATOR ', ')
                  FROM order_items oi JOIN products p ON p.id = oi.product_id
                 WHERE oi.order_id = o.id) AS items_preview
        FROM orders o LEFT JOIN users u ON u.id = o.cashier_id${where}
@@ -209,7 +265,7 @@ router.get('/:id', async (req, res, next) => {
     );
     if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan' });
     const [items] = await pool.query(
-      'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id',
+      'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note, oi.porsi_no, oi.item_role FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id ORDER BY oi.id',
       { id }
     );
     res.json({

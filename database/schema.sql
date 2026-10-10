@@ -2,7 +2,8 @@
 -- Juragan Seblak — Skema Database MySQL
 -- Jalankan di server: mysql -u root -p < database/schema.sql
 -- Instalasi lama (sebelum ada categories/settings): jalankan juga
--- database/migrate-01-pos.sql (idempoten).
+-- database/migrate-01-pos.sql; untuk menu seblak prasmanan pada
+-- instalasi lama: database/migrate-07-prasmanan.sql (semuanya idempoten).
 -- =====================================================================
 
 CREATE DATABASE IF NOT EXISTS juragan_seblak
@@ -72,6 +73,19 @@ CREATE TABLE IF NOT EXISTS products (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------
+-- Relasi menu ↔ bahan (multi-bahan per menu; dikelola halaman Menu).
+-- products.stock_item_id hanya menyimpan bahan pertama (kompatibilitas).
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS product_stock_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  stock_item_id INT UNSIGNED NOT NULL,
+  qty_per_unit DECIMAL(12,3) NOT NULL DEFAULT 1,
+  UNIQUE KEY uniq_pair (product_id, stock_item_id),
+  INDEX idx_product (product_id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
 -- Pengaturan toko (pajak, service, branding struk)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS settings (
@@ -131,6 +145,8 @@ CREATE TABLE IF NOT EXISTS order_items (
   qty        INT NOT NULL DEFAULT 1,
   unit_price DECIMAL(12, 2) NOT NULL,          -- harga saat transaksi
   note       VARCHAR(255) DEFAULT NULL,
+  porsi_no   INT UNSIGNED DEFAULT NULL,        -- nomor porsi (seblak prasmanan)
+  item_role  ENUM('kuah', 'topping') DEFAULT NULL,  -- peran baris dalam porsi
   CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
   CONSTRAINT fk_items_product FOREIGN KEY (product_id) REFERENCES products (id)
 ) ENGINE=InnoDB;
@@ -227,10 +243,14 @@ CREATE TABLE IF NOT EXISTS attendance (
 -- =====================================================================
 -- Data awal (seed)
 -- =====================================================================
+-- Menu = seblak prasmanan: porsi custom per jenis kuah (wajib pilih satu:
+-- Nyemek / Sedang / Full Kuah) + topping bebas (kerupuk, sosis, kol, dst.).
+-- Jenis kuah & topping adalah products dengan kategori 'kuah' / 'topping';
+-- masing-masing terhubung ke bahan stok via product_stock_items (HPP).
 INSERT INTO categories (`key`, label, sort_order) VALUES
-  ('paket',   'Paket AYCE', 1),
-  ('minuman', 'Minuman',    2),
-  ('ekstra',  'Ekstra',     3)
+  ('kuah',    'Jenis Kuah',     1),
+  ('topping', 'Topping Seblak', 2),
+  ('minuman', 'Minuman',        3)
 ON DUPLICATE KEY UPDATE label = VALUES(label), sort_order = VALUES(sort_order);
 
 INSERT INTO settings (`key`, `value`) VALUES
@@ -245,18 +265,26 @@ ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
 INSERT INTO products (name, category_id, price, hpp, image_url)
 SELECT v.name, c.id, v.price, v.hpp, v.image_url
 FROM (
-  SELECT 'Paket Reguler'        AS name, 'paket'   AS ck, 75000  AS price, 38000 AS hpp, '/images/menu-geprek.jpg'  AS image_url UNION ALL
-  SELECT 'Paket Pedas Jagoan',            'paket',   95000, 48000, '/images/menu-mie.jpg'      UNION ALL
-  SELECT 'Paket Extreme Lv.10',           'paket',  115000, 60000, '/images/pos-extreme.jpg'   UNION ALL
-  SELECT 'Paket Keluarga (4px)',          'paket',  340000,175000, '/images/pos-keluarga.jpg'  UNION ALL
-  SELECT 'Es Teh Manis',                 'minuman',  8000,  2500, '/images/pos-esteh.jpg'      UNION ALL
-  SELECT 'Es Jeruk Peras',               'minuman', 12000,  4500, '/images/pos-esjeruk.jpg'    UNION ALL
-  SELECT 'Es Campur Segar',              'minuman', 18000,  7000, '/images/pos-escampur.jpg'   UNION ALL
-  SELECT 'Air Mineral',                  'minuman',  5000,  2000, '/images/pos-air.jpg'        UNION ALL
-  SELECT 'Tambah Nasi',                  'ekstra',   5000,  2000, '/images/pos-nasi.jpg'       UNION ALL
-  SELECT 'Kerupuk',                      'ekstra',   5000,  1500, '/images/pos-kerupuk.jpg'    UNION ALL
-  SELECT 'Extra Sambal',                 'ekstra',   7000,  2000, '/images/pos-sambal.jpg'     UNION ALL
-  SELECT 'Telur Ceplok',                 'ekstra',   6000,  3000, '/images/pos-telur.jpg'
+  -- Jenis kuah (dasar porsi — HPP multi bahan via product_stock_items)
+  SELECT 'Seblak Nyemek'    AS name, 'kuah'    AS ck,  8000  AS price, 3500 AS hpp, '/images/kuah-nyemek.jpg'  AS image_url UNION ALL
+  SELECT 'Seblak Sedang',            'kuah',           10000,       4500,      '/images/kuah-sedang.jpg'           UNION ALL
+  SELECT 'Seblak Full Kuah',         'kuah',           12000,       5500,      '/images/kuah-full.jpg'             UNION ALL
+  -- Topping seblak (diisi per porsi sesuai keinginan pelanggan)
+  SELECT 'Kerupuk',                  'topping',         2000,        800,      '/images/top-kerupuk.jpg'           UNION ALL
+  SELECT 'Sosis Ayam',               'topping',         3000,       1500,      '/images/top-sosis.jpg'             UNION ALL
+  SELECT 'Sayur Kol',                'topping',         1000,        400,      '/images/top-kol.jpg'               UNION ALL
+  SELECT 'Jamur',                    'topping',         2000,        800,      '/images/top-jamur.jpg'             UNION ALL
+  SELECT 'Telur Rebus',              'topping',         3000,       1200,      '/images/top-telur.jpg'             UNION ALL
+  SELECT 'Bakso Kasar',              'topping',         4000,       1800,      '/images/top-bakso-kasar.jpg'       UNION ALL
+  SELECT 'Bakso Halus',              'topping',         4000,       1800,      '/images/top-bakso-halus.jpg'       UNION ALL
+  SELECT 'Mie Basah',                'topping',         3000,       1000,      '/images/top-mie.jpg'               UNION ALL
+  SELECT 'Makaroni',                 'topping',         2000,        700,      '/images/top-makaroni.jpg'          UNION ALL
+  SELECT 'Ceker Ayam',               'topping',         4000,       2000,      '/images/top-ceker.jpg'             UNION ALL
+  -- Minuman (item biasa, bukan porsi)
+  SELECT 'Es Teh Manis',             'minuman',         8000,       2500,      '/images/pos-esteh.jpg'             UNION ALL
+  SELECT 'Es Jeruk Peras',           'minuman',        12000,       4500,      '/images/pos-esjeruk.jpg'           UNION ALL
+  SELECT 'Es Campur Segar',          'minuman',        18000,       7000,      '/images/pos-escampur.jpg'          UNION ALL
+  SELECT 'Air Mineral',              'minuman',         5000,       2000,      '/images/pos-air.jpg'
 ) v
 JOIN categories c ON c.`key` = v.ck
 WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.name = v.name);
@@ -271,30 +299,59 @@ ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO stock_items (name, category, unit, qty, min_qty)
 SELECT v.name, v.category, v.unit, v.qty, v.min_qty
 FROM (
-  SELECT 'Daging Ayam' AS name, 'Protein' AS category, 'kg' AS unit, 8 AS qty, 15 AS min_qty UNION ALL
-  SELECT 'Daging Sapi',          'Protein',   'kg',    22, 10 UNION ALL
-  SELECT 'Cabai Rawit',          'Bumbu',     'kg',    3,  8  UNION ALL
-  SELECT 'Cabai Merah Besar',    'Bumbu',     'kg',    5,  6  UNION ALL
-  SELECT 'Bawang Merah',         'Bumbu',     'kg',    14, 8  UNION ALL
-  SELECT 'Bawang Putih',         'Bumbu',     'kg',    11, 6  UNION ALL
-  SELECT 'Beras',                'Pokok',     'kg',    60, 30 UNION ALL
-  SELECT 'Mie Basah',            'Pokok',     'kg',    4,  10 UNION ALL
-  SELECT 'Minyak Goreng',        'Pelengkap', 'liter', 18, 10 UNION ALL
-  SELECT 'Telur Ayam',           'Protein',   'kg',    25, 10 UNION ALL
-  SELECT 'Kerupuk Mentah',       'Pelengkap', 'kg',    6,  5  UNION ALL
-  SELECT 'Gula Pasir',           'Bumbu',     'kg',    9,  5  UNION ALL
-  SELECT 'Kecap Manis',          'Pelengkap', 'liter', 12, 6  UNION ALL
-  SELECT 'Jeruk Nipis',          'Bumbu',     'kg',    2,  4
+  SELECT 'Cabai Rawit'       AS name, 'Bumbu'     AS category, 'kg'    AS unit, 3  AS qty, 8  AS min_qty UNION ALL
+  SELECT 'Cabai Merah Besar',         'Bumbu',     'kg',    5,        6  UNION ALL
+  SELECT 'Bawang Merah',              'Bumbu',     'kg',   14,        8  UNION ALL
+  SELECT 'Bawang Putih',              'Bumbu',     'kg',   11,        6  UNION ALL
+  SELECT 'Gula Pasir',                'Bumbu',     'kg',    9,        5  UNION ALL
+  SELECT 'Jeruk Nipis',               'Bumbu',     'kg',    2,        4  UNION ALL
+  SELECT 'Mie Basah',                 'Pokok',     'kg',    4,       10  UNION ALL
+  SELECT 'Makaroni',                  'Pokok',     'kg',   10,        4  UNION ALL
+  SELECT 'Minyak Goreng',             'Pelengkap', 'liter',18,       10  UNION ALL
+  SELECT 'Kecap Manis',               'Pelengkap', 'liter',12,        6  UNION ALL
+  SELECT 'Kerupuk Mentah',            'Pelengkap', 'kg',    6,        5  UNION ALL
+  SELECT 'Telur Ayam',                'Protein',   'kg',   25,       10  UNION ALL
+  SELECT 'Sosis Ayam',                'Protein',   'pcs',  60,       20  UNION ALL
+  SELECT 'Bakso Kasar',               'Protein',   'pcs',  60,       20  UNION ALL
+  SELECT 'Bakso Halus',               'Protein',   'pcs',  60,       20  UNION ALL
+  SELECT 'Ceker Ayam',                'Protein',   'pcs',  40,       15  UNION ALL
+  SELECT 'Sayur Kol',                 'Sayuran',   'kg',   10,        4  UNION ALL
+  SELECT 'Jamur Merang',              'Sayuran',   'kg',    8,        3
 ) v
 WHERE NOT EXISTS (SELECT 1 FROM stock_items s WHERE s.name = v.name);
 
--- Contoh mapping produk -> bahan (bisa diubah dari UI Menu)
-UPDATE products p JOIN stock_items s ON s.name = 'Kerupuk Mentah'
-SET p.stock_item_id = s.id, p.stock_qty_per_unit = 0.05
-WHERE p.name = 'Kerupuk' AND p.stock_item_id IS NULL;
-UPDATE products p JOIN stock_items s ON s.name = 'Telur Ayam'
-SET p.stock_item_id = s.id, p.stock_qty_per_unit = 0.06
-WHERE p.name = 'Telur Ceplok' AND p.stock_item_id IS NULL;
-UPDATE products p JOIN stock_items s ON s.name = 'Beras'
-SET p.stock_item_id = s.id, p.stock_qty_per_unit = 0.15
-WHERE p.name = 'Tambah Nasi' AND p.stock_item_id IS NULL;
+-- Link MULTI bahan per JENIS KUAH (HPP kuah — makin penuh makin banyak bumbu)
+INSERT INTO product_stock_items (product_id, stock_item_id, qty_per_unit)
+SELECT p.id, s.id, v.qty_per_unit
+FROM (
+  SELECT 'Seblak Nyemek'   AS pname, 'Cabai Rawit'   AS sname, 0.040 AS qty_per_unit UNION ALL
+  SELECT 'Seblak Nyemek',            'Bawang Putih',          0.015 UNION ALL
+  SELECT 'Seblak Nyemek',            'Bawang Merah',          0.015 UNION ALL
+  SELECT 'Seblak Nyemek',            'Minyak Goreng',         0.020 UNION ALL
+  SELECT 'Seblak Nyemek',            'Kecap Manis',           0.005 UNION ALL
+  SELECT 'Seblak Sedang',            'Cabai Rawit',           0.060 UNION ALL
+  SELECT 'Seblak Sedang',            'Bawang Putih',          0.020 UNION ALL
+  SELECT 'Seblak Sedang',            'Bawang Merah',          0.020 UNION ALL
+  SELECT 'Seblak Sedang',            'Minyak Goreng',         0.030 UNION ALL
+  SELECT 'Seblak Sedang',            'Kecap Manis',           0.010 UNION ALL
+  SELECT 'Seblak Full Kuah',         'Cabai Rawit',           0.080 UNION ALL
+  SELECT 'Seblak Full Kuah',         'Bawang Putih',          0.030 UNION ALL
+  SELECT 'Seblak Full Kuah',         'Bawang Merah',          0.030 UNION ALL
+  SELECT 'Seblak Full Kuah',         'Minyak Goreng',         0.040 UNION ALL
+  SELECT 'Seblak Full Kuah',         'Kecap Manis',           0.015 UNION ALL
+  SELECT 'Kerupuk',                  'Kerupuk Mentah',        0.050 UNION ALL
+  SELECT 'Sosis Ayam',               'Sosis Ayam',            1.000 UNION ALL
+  SELECT 'Sayur Kol',                'Sayur Kol',             0.100 UNION ALL
+  SELECT 'Jamur',                    'Jamur Merang',          0.100 UNION ALL
+  SELECT 'Telur Rebus',              'Telur Ayam',            0.060 UNION ALL
+  SELECT 'Bakso Kasar',              'Bakso Kasar',           1.000 UNION ALL
+  SELECT 'Bakso Halus',              'Bakso Halus',           1.000 UNION ALL
+  SELECT 'Mie Basah',                'Mie Basah',             0.250 UNION ALL
+  SELECT 'Makaroni',                 'Makaroni',              0.100 UNION ALL
+  SELECT 'Ceker Ayam',               'Ceker Ayam',            1.000
+) v
+JOIN products p ON p.name = v.pname
+JOIN stock_items s ON s.name = v.sname
+WHERE NOT EXISTS (
+  SELECT 1 FROM product_stock_items psi
+  WHERE psi.product_id = p.id AND psi.stock_item_id = s.id);
