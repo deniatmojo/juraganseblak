@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { linksForProducts } from './products.js';
 import { requireRole } from '../auth.js';
 import { dateCompactWib } from '../wib.js';
+import { resolveBranch, deductStock } from '../branch.js';
 
 const router = Router();
 
@@ -132,16 +133,19 @@ router.post('/', async (req, res, next) => {
 
     // Pesanan otomatis masuk shift aktif kasir (bila ada)
     const [[openShift]] = await conn.query(
-      'SELECT id FROM shifts WHERE user_id = :u AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
+      'SELECT id, branch_id FROM shifts WHERE user_id = :u AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
       { u: req.user?.id ?? 0 }
     );
+    // Cabang transaksi: cabang shift yang sedang terbuka (kasir wajib per cabang);
+    // tanpa shift → ditentukan dari akun / body.branch_id.
+    const branchId = openShift?.branch_id ?? await resolveBranch(req, { conn });
 
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, table_no, subtotal,
-        tax_amount, service_amount, discount, total, pay_method, paid_amount, status, cashier_id, shift_id)
+        tax_amount, service_amount, discount, total, pay_method, paid_amount, status, cashier_id, shift_id, branch_id)
        VALUES (:order_no, :channel, :customer, :table_no, :subtotal,
-        :tax, :service, :discount, :total, :pay_method, :paid, :status, :cashier, :shift)`,
-      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, total, pay_method, paid: paid_amount, status: isPending ? 'pending' : 'paid', cashier: req.user?.id ?? null, shift: openShift?.id ?? null }
+        :tax, :service, :discount, :total, :pay_method, :paid, :status, :cashier, :shift, :branch)`,
+      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, total, pay_method, paid: paid_amount, status: isPending ? 'pending' : 'paid', cashier: req.user?.id ?? null, shift: openShift?.id ?? null, branch: branchId }
     );
     const orderId = orderResult.insertId;
 
@@ -172,19 +176,15 @@ router.post('/', async (req, res, next) => {
       for (const link of links) {
         const used = Number(link.qty_per_unit) * l.qty;
         if (!(used > 0)) continue;
-        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: link.stock_item_id });
-        await conn.query(
-          `INSERT INTO stock_movements (item_id, type, qty, note, created_by) VALUES (:item, 'out', :used, :note, :user)`,
-          { item: link.stock_item_id, used, note: `Penjualan ${orderNo}`, user: req.user?.id ?? null }
-        );
+        await deductStock(conn, { itemId: link.stock_item_id, branchId, used, note: `Penjualan ${orderNo}`, userId: req.user?.id ?? null });
       }
     }
 
     // Catat pemasukan otomatis (pesanan pending: dicatat saat dilunaskan)
     if (!isPending) {
       await conn.query(
-        `INSERT INTO transactions (type, category, amount, note, ref_order) VALUES ('income', 'penjualan', :total, :note, :ref)`,
-        { total, note: `Penjualan ${orderNo}`, ref: orderId }
+        `INSERT INTO transactions (type, category, amount, note, ref_order, branch_id) VALUES ('income', 'penjualan', :total, :note, :ref, :branch)`,
+        { total, note: `Penjualan ${orderNo}`, ref: orderId, branch: branchId }
       );
     }
 
@@ -193,6 +193,7 @@ router.post('/', async (req, res, next) => {
     res.status(201).json({
       id: orderId,
       order_no: orderNo,
+      branch_id: branchId,
       channel,
       customer_name,
       table_no,
@@ -223,6 +224,8 @@ router.get('/', async (req, res, next) => {
   try {
     const cond = [];
     const params = {};
+    const branch = await resolveBranch(req, { allowAll: true });
+    if (branch != null) { cond.push('o.branch_id = :branch'); params.branch = branch; }
     if (req.query.from) { cond.push('o.created_at >= :from'); params.from = `${req.query.from} 00:00:00`; }
     if (req.query.to) { cond.push('o.created_at <= :to'); params.to = `${req.query.to} 23:59:59`; }
     if (req.query.status) { cond.push('o.status = :status'); params.status = req.query.status; }
@@ -233,7 +236,7 @@ router.get('/', async (req, res, next) => {
               o.paid_amount, o.status, o.void_reason, o.voided_at,
               o.customer_phone, o.order_type, o.schedule_at, o.delivery_address,
               o.customer_note, o.progress, o.progress_updated_at,
-              u.name AS cashier_name, o.created_at,
+              u.name AS cashier_name, o.created_at, o.branch_id, br.name AS branch_name,
               (SELECT GROUP_CONCAT(
                  CASE WHEN oi.item_role = 'kuah'
                       THEN CONCAT('Porsi ', oi.porsi_no, ': ', oi.qty, 'x ', p.name)
@@ -243,7 +246,8 @@ router.get('/', async (req, res, next) => {
                  ORDER BY oi.id SEPARATOR ', ')
                  FROM order_items oi JOIN products p ON p.id = oi.product_id
                 WHERE oi.order_id = o.id) AS items_preview
-       FROM orders o LEFT JOIN users u ON u.id = o.cashier_id${where}
+       FROM orders o LEFT JOIN users u ON u.id = o.cashier_id
+       LEFT JOIN branches br ON br.id = o.branch_id${where}
        ORDER BY o.created_at DESC LIMIT 500`, params
     );
     res.json(rows.map((r) => ({
@@ -292,7 +296,7 @@ router.post('/:id/void', requireRole('owner', 'admin'), async (req, res, next) =
 
     await conn.beginTransaction();
     const [[order]] = await conn.query(
-      'SELECT id, order_no, total, status FROM orders WHERE id = :id FOR UPDATE', { id }
+      'SELECT id, order_no, total, status, branch_id FROM orders WHERE id = :id FOR UPDATE', { id }
     );
     if (!order) { await conn.rollback(); return res.status(404).json({ error: 'Pesanan tidak ditemukan' }); }
     if (order.status === 'canceled') { await conn.rollback(); return res.status(409).json({ error: 'Pesanan sudah dibatalkan' }); }
@@ -302,9 +306,9 @@ router.post('/:id/void', requireRole('owner', 'admin'), async (req, res, next) =
       { reason, by: req.user.id, id }
     );
     await conn.query(
-      `INSERT INTO transactions (type, category, amount, note, ref_order, created_by)
-       VALUES ('expense', 'void', :total, :note, :ref, :by)`,
-      { total: order.total, note: `Void ${order.order_no}: ${reason}`, ref: id, by: req.user.id }
+      `INSERT INTO transactions (type, category, amount, note, ref_order, created_by, branch_id)
+       VALUES ('expense', 'void', :total, :note, :ref, :by, :branch)`,
+      { total: order.total, note: `Void ${order.order_no}: ${reason}`, ref: id, by: req.user.id, branch: order.branch_id }
     );
     await conn.commit();
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { getCurrentUser, logout, isAllowed, ROLE_HOME } from '../auth'
 import { api } from '../api'
+import { getBranch, setBranch } from '../branch'
 
 const headerMeta = {
   '/erp': { title: 'Dashboard', subtitle: 'Ringkasan operasional Juragan Seblak hari ini' },
@@ -93,6 +94,11 @@ export default function AdminLayout() {
   const [lowStock, setLowStock] = useState([])
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
+  const [branches, setBranches] = useState([])
+  const [branch, setBranchState] = useState(getBranch)
+  // Admin yang dikunci ke satu cabang tidak bisa memilih; kasir ikut cabang shift-nya.
+  const lockedBranch = user?.role === 'admin' ? user.branch_id : null
+  const canPickBranch = (user?.role === 'owner' || user?.role === 'admin') && !lockedBranch
 
   const visibleNav = navItems.filter((item) => !item.roles || item.roles.includes(user?.role))
   const roleLabel = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
@@ -114,6 +120,24 @@ export default function AdminLayout() {
     return () => clearInterval(timer)
   }, [])
 
+  // Daftar cabang untuk pemilih; pilihan tersimpan dijaga tetap valid.
+  useEffect(() => {
+    api.get('/branch-options').then((rows) => {
+      setBranches(rows)
+      const saved = getBranch()
+      const valid = saved === 'all' || rows.some((b) => String(b.id) === saved)
+      if (!valid && rows.length) {
+        setBranch(String(rows[0].id))
+        setBranchState(String(rows[0].id))
+      }
+    }).catch(() => {})
+  }, [])
+
+  const changeBranch = (value) => {
+    setBranch(value)
+    setBranchState(value)
+  }
+
   // Notifikasi stok kritis — refresh tiap 60 detik
   useEffect(() => {
     let mounted = true
@@ -125,7 +149,7 @@ export default function AdminLayout() {
     load()
     const timer = setInterval(load, 60000)
     return () => { mounted = false; clearInterval(timer) }
-  }, [])
+  }, [branch])
 
   // Tutup dropdown notif saat klik di luar
   useEffect(() => {
@@ -215,6 +239,24 @@ export default function AdminLayout() {
           </div>
 
           <div className="flex items-center gap-3 md:gap-5">
+            {canPickBranch && branches.length > 0 && (
+              <label className="flex items-center gap-2 text-xs font-bold text-char/60">
+                <span className="hidden md:inline">Cabang</span>
+                <select
+                  value={branch}
+                  onChange={(e) => changeBranch(e.target.value)}
+                  className="bg-cream border border-black/10 rounded-full px-3 py-2 text-xs font-bold text-char focus:outline-none focus:ring-2 focus:ring-chili/30"
+                >
+                  <option value="all">Semua cabang</option>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </label>
+            )}
+            {lockedBranch && (
+              <span className="text-xs font-bold text-chili bg-red-50 px-3 py-1.5 rounded-full">
+                {branches.find((b) => b.id === lockedBranch)?.name ?? 'Cabang'}
+              </span>
+            )}
             <div className="hidden sm:flex flex-col items-end leading-none">
               <span className="font-bold text-sm tabular-nums">{clock}</span>
               <span className="text-xs text-char/50 mt-0.5">{date}</span>
@@ -266,7 +308,7 @@ export default function AdminLayout() {
           </div>
         </header>
 
-        <Outlet context={{ user }} />
+        <Outlet key={canPickBranch ? branch : 'fixed'} context={{ user, branches, branch: canPickBranch ? branch : String(lockedBranch ?? '') }} />
       </div>
     </div>
   )

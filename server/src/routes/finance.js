@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import { resolveBranch, branchCond } from '../branch.js';
 
 // ============================================================
 // Modul Laporan Keuangan (pendekatan hybrid):
@@ -43,79 +44,91 @@ function classify(type, category) {
 // Nilai persediaan pada tanggal tertentu: stok sekarang dikurangi dampak
 // pergerakan setelah tanggal tsb (masuk mengurangi persediaan masa lalu,
 // keluar menambahkannya kembali). Item dinilai dengan harga beli terakhir.
-async function inventoryValueAt(dateEndExclusive) {
+// branch=null -> semua cabang. Transfer antar cabang ikut dihitung (bernilai nol
+// bila semua cabang digabung, karena masuk & keluar saling meniadakan).
+async function inventoryValueAt(dateEndExclusive, branch = null) {
+  const nowParams = {};
   const [[nowVal]] = await pool.query(
-    `SELECT COALESCE(SUM(qty * unit_cost), 0) v FROM stock_items WHERE is_active = 1`
+    `SELECT COALESCE(SUM(b.qty * s.unit_cost), 0) v
+     FROM stock_branch_items b JOIN stock_items s ON s.id = b.item_id
+     WHERE s.is_active = 1${branchCond('b.branch_id', branch, nowParams)}`, nowParams
   );
+  const mvParams = { d: dateEndExclusive };
   const [[mv]] = await pool.query(
     `SELECT
-       COALESCE(SUM(CASE WHEN m.type = 'in' THEN m.qty * COALESCE(NULLIF(m.unit_cost, 0), s.unit_cost) ELSE 0 END), 0) AS in_val,
-       COALESCE(SUM(CASE WHEN m.type = 'out' THEN m.qty * s.unit_cost ELSE 0 END), 0) AS out_val
+       COALESCE(SUM(CASE WHEN m.type IN ('in', 'transfer_in') THEN m.qty * COALESCE(NULLIF(m.unit_cost, 0), s.unit_cost) ELSE 0 END), 0) AS in_val,
+       COALESCE(SUM(CASE WHEN m.type IN ('out', 'transfer_out') THEN m.qty * s.unit_cost ELSE 0 END), 0) AS out_val
      FROM stock_movements m JOIN stock_items s ON s.id = m.item_id
-     WHERE m.created_at >= :d`,
-    { d: dateEndExclusive }
+     WHERE m.created_at >= :d${branchCond('m.branch_id', branch, mvParams)}`,
+    mvParams
   );
   return Number(nowVal.v) - Number(mv.in_val) + Number(mv.out_val);
 }
 
 // Total pembelian bahan dalam periode = barang masuk (in) bernilai, kecuali stok awal.
-async function purchasesInPeriod(from, to) {
+async function purchasesInPeriod(from, to, branch = null) {
+  const params = { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
   const [[row]] = await pool.query(
     `SELECT COALESCE(SUM(m.qty * COALESCE(NULLIF(m.unit_cost, 0), s.unit_cost)), 0) v
      FROM stock_movements m JOIN stock_items s ON s.id = m.item_id
      WHERE m.type = 'in' AND (m.note IS NULL OR m.note != 'Stok awal')
-       AND m.created_at >= :from AND m.created_at <= :to`,
-    { from: `${from} 00:00:00`, to: `${to} 23:59:59` }
+       AND m.created_at >= :from AND m.created_at <= :to${branchCond('m.branch_id', branch, params)}`,
+    params
   );
   return Number(row.v);
 }
 
 // HPP penuh = Persediaan awal + Pembelian − Persediaan akhir.
-async function hppForPeriod(from, to) {
+async function hppForPeriod(from, to, branch = null) {
+  const recipeParams = { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
+  const recipeBranch = branchCond('o.branch_id', branch, recipeParams);
   const [opening, purchases, closing, recipe] = await Promise.all([
-    inventoryValueAt(`${from} 00:00:00`),
-    purchasesInPeriod(from, to),
-    inventoryValueAt(`${to} 23:59:59`),
+    inventoryValueAt(`${from} 00:00:00`, branch),
+    purchasesInPeriod(from, to, branch),
+    inventoryValueAt(`${to} 23:59:59`, branch),
     pool.query(
       `SELECT COALESCE(SUM(oi.qty * p.hpp), 0) AS hpp, COUNT(DISTINCT o.id) AS n_orders
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        JOIN products p ON p.id = oi.product_id
-       WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at <= :to`,
-      { from: `${from} 00:00:00`, to: `${to} 23:59:59` }
+       WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at <= :to${recipeBranch}`,
+      recipeParams
     ).then(([rows]) => ({ hpp: Number(rows[0].hpp), nOrders: Number(rows[0].n_orders) })),
   ]);
   return { opening, purchases, closing, hpp_recipe: recipe.hpp, nOrders: recipe.nOrders, hpp: opening + purchases - closing };
 }
 
-async function txInPeriod(from, to) {
+async function txInPeriod(from, to, branch = null) {
+  const params = { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
   const [rows] = await pool.query(
     `SELECT t.id, t.type, t.category, t.amount, t.note, t.ref_order, t.created_at, u.name AS by_name
      FROM transactions t LEFT JOIN users u ON u.id = t.created_by
-     WHERE t.created_at >= :from AND t.created_at <= :to
+     WHERE t.created_at >= :from AND t.created_at <= :to${branchCond('t.branch_id', branch, params)}
      ORDER BY t.created_at ASC`,
-    { from: `${from} 00:00:00`, to: `${to} 23:59:59` }
+    params
   );
   return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
 }
 
-const parseRange = (req, res) => {
+// Mengembalikan { from, to, branch } - branch null = semua cabang (owner),
+// admin yang dikunci selalu ke cabangnya.
+const parseRange = async (req, res) => {
   const from = req.query.from;
   const to = req.query.to || req.query.from;
   if (!from || !to) {
     res.status(400).json({ error: 'Parameter from dan to wajib diisi' });
     return null;
   }
-  return { from, to };
+  return { from, to, branch: await resolveBranch(req, { allowAll: true }) };
 };
 
 // ---------- LABA RUGI ----------
 // GET /api/finance/income-statement?from=&to=
 router.get('/income-statement', async (req, res, next) => {
   try {
-    const r = parseRange(req, res); if (!r) return;
-    const txs = await txInPeriod(r.from, r.to);
-    const inv = await hppForPeriod(r.from, r.to);
+    const r = await parseRange(req, res); if (!r) return;
+    const txs = await txInPeriod(r.from, r.to, r.branch);
+    const inv = await hppForPeriod(r.from, r.to, r.branch);
 
     const revenues = [];
     const expenses = [];
@@ -163,13 +176,14 @@ router.get('/income-statement', async (req, res, next) => {
 // GET /api/finance/cash-flow?from=&to=
 router.get('/cash-flow', async (req, res, next) => {
   try {
-    const r = parseRange(req, res); if (!r) return;
-    const txs = await txInPeriod(r.from, r.to);
+    const r = await parseRange(req, res); if (!r) return;
+    const txs = await txInPeriod(r.from, r.to, r.branch);
 
+    const openParams = { from: `${r.from} 00:00:00` };
     const [[open]] = await pool.query(
       `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END), 0) AS bal
-       FROM transactions WHERE created_at < :from`,
-      { from: `${r.from} 00:00:00` }
+       FROM transactions WHERE created_at < :from${branchCond('branch_id', r.branch, openParams)}`,
+      openParams
     );
     const opening = Number(open.bal);
 
@@ -206,8 +220,8 @@ router.get('/cash-flow', async (req, res, next) => {
 // GET /api/finance/journal?from=&to= — entri debit-kredit turunan dari kas.
 router.get('/journal', async (req, res, next) => {
   try {
-    const r = parseRange(req, res); if (!r) return;
-    const txs = await txInPeriod(r.from, r.to);
+    const r = await parseRange(req, res); if (!r) return;
+    const txs = await txInPeriod(r.from, r.to, r.branch);
     const entries = txs.map((t, i) => {
       const label = catLabel((t.category || '').toLowerCase());
       const isIncome = t.type === 'income';
@@ -253,19 +267,20 @@ router.get('/accounts', async (_req, res, next) => {
 // GET /api/finance/ledger?account=&from=&to= — saldo berjalan per akun.
 router.get('/ledger', async (req, res, next) => {
   try {
-    const r = parseRange(req, res); if (!r) return;
+    const r = await parseRange(req, res); if (!r) return;
     const account = req.query.account || 'kas';
     let opening = 0;
     const rows = [];
 
     if (account === 'kas') {
+      const openParams = { from: `${r.from} 00:00:00` };
       const [[open]] = await pool.query(
         `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END), 0) AS bal
-         FROM transactions WHERE created_at < :from`,
-        { from: `${r.from} 00:00:00` }
+         FROM transactions WHERE created_at < :from${branchCond('branch_id', r.branch, openParams)}`,
+        openParams
       );
       opening = Number(open.bal);
-      const txs = await txInPeriod(r.from, r.to);
+      const txs = await txInPeriod(r.from, r.to, r.branch);
       for (const t of txs) {
         rows.push({
           date: t.created_at, description: t.note || catLabel((t.category || '').toLowerCase()),
@@ -273,33 +288,36 @@ router.get('/ledger', async (req, res, next) => {
         });
       }
     } else if (account === 'hpp') {
+      const hppParams = { from: `${r.from} 00:00:00`, to: `${r.to} 23:59:59` };
       const [items] = await pool.query(
         `SELECT o.order_no, o.created_at, SUM(oi.qty * p.hpp) AS hpp
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
          JOIN products p ON p.id = oi.product_id
-         WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at <= :to
+         WHERE o.voided_at IS NULL AND o.created_at >= :from AND o.created_at <= :to${branchCond('o.branch_id', r.branch, hppParams)}
          GROUP BY o.id, o.order_no, o.created_at
          ORDER BY o.created_at ASC`,
-        { from: `${r.from} 00:00:00`, to: `${r.to} 23:59:59` }
+        hppParams
       );
       for (const it of items) {
         rows.push({ date: it.created_at, description: `HPP pesanan ${it.order_no}`, debit: Number(it.hpp), credit: 0 });
       }
     } else if (account.startsWith('cat:')) {
       const [, type, cat] = account.split(':');
+      const catOpenParams = { type, cat, from: `${r.from} 00:00:00` };
       const [[open]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-         WHERE type = :type AND LOWER(category) = :cat AND created_at < :from`,
-        { type, cat, from: `${r.from} 00:00:00` }
+         WHERE type = :type AND LOWER(category) = :cat AND created_at < :from${branchCond('branch_id', r.branch, catOpenParams)}`,
+        catOpenParams
       );
       opening = Number(open.total);
+      const catParams = { type, cat, from: `${r.from} 00:00:00`, to: `${r.to} 23:59:59` };
       const [txs] = await pool.query(
         `SELECT t.created_at, t.amount, t.note, t.type FROM transactions t
          WHERE t.type = :type AND LOWER(t.category) = :cat
-           AND t.created_at >= :from AND t.created_at <= :to
+           AND t.created_at >= :from AND t.created_at <= :to${branchCond('t.branch_id', r.branch, catParams)}
          ORDER BY t.created_at ASC`,
-        { type, cat, from: `${r.from} 00:00:00`, to: `${r.to} 23:59:59` }
+        catParams
       );
       for (const t of txs) {
         const isDebit = type === 'expense';

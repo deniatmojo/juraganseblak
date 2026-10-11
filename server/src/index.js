@@ -22,6 +22,7 @@ import paymentsRouter from './routes/payments.js';
 import onlineRouter from './routes/online.js';
 import { autoClockOut } from './routes/attendance.js';
 import { requireAuth, requireRole } from './auth.js';
+import { pool } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,13 @@ app.use('/api/payments', paymentsRouter);
 // update tahap pesanan oleh kasir dijaga requireAuth di dalam routernya.
 app.use('/api/online', onlineRouter);
 app.use('/api', requireAuth);
+// Daftar cabang aktif untuk semua role yang login (pemilih cabang & buka shift).
+app.get('/api/branch-options', async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query('SELECT id, name FROM branches WHERE is_active = 1 ORDER BY id');
+    res.json(rows);
+  } catch (e) { next(e); }
+});
 
 // Guard role — wajib dipasang SEBELUM router agar dieksekusi duluan.
 // Data manajemen (menu/kategori/settings/stok/transaksi manual): baca semua
@@ -91,6 +99,7 @@ app.use('/api/finance', financeRouter);
 app.use('/api/upload', uploadRouter);
 
 app.use((err, _req, res, _next) => {
+  if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
   console.error(err);
   res.status(500).json({ error: 'Kesalahan server' });
 });

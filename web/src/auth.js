@@ -75,7 +75,7 @@ export function login(acc) {
 export async function serverLogin(email, password) {
   const { token, user } = await api.post('/auth/login', { email, password })
   setToken(token)
-  const session = { id: user.id, name: user.name, email: user.email, role: user.role, position: user.role }
+  const session = { id: user.id, name: user.name, email: user.email, role: user.role, position: user.role, branch_id: user.branch_id ?? null }
   sessionStorage.setItem('erp_user', JSON.stringify(session))
   return session
 }

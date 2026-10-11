@@ -16,6 +16,9 @@ export default function Order() {
   const [orderType, setOrderType] = useState('pickup')
   const [menu, setMenu] = useState([])
   const [store, setStore] = useState(null)
+  // Cabang tujuan (delivery/pickup/reservasi). Pesanan dari QR meja ikut cabang meja.
+  const [branches, setBranches] = useState([])
+  const [branchId, setBranchId] = useState('')
   const [cart, setCart] = useState({}) // { product_id: qty } — item biasa (minuman)
   // Seblak prasmanan: porsi yang sudah masuk keranjang + draft racikan aktif.
   // Satu porsi = 1 jenis kuah (WAJIB) + topping bebas + jumlah porsi.
@@ -38,8 +41,11 @@ export default function Order() {
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([api.get('/online/menu'), api.get('/online/store')])
-      .then(([m, s]) => { setMenu(m); setStore(s) })
+    Promise.all([api.get('/online/menu'), api.get('/online/store'), api.get('/online/branches')])
+      .then(([m, s, b]) => {
+        setMenu(m); setStore(s); setBranches(b)
+        if (b.length === 1) setBranchId(String(b[0].id))
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
@@ -145,6 +151,10 @@ export default function Order() {
       setError('Racik minimal satu porsi seblak dulu ya')
       return
     }
+    if (!tableMode && branches.length > 1 && !branchId) {
+      setError('Pilih cabang tujuan pesananmu dulu ya')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -153,6 +163,7 @@ export default function Order() {
         customer_phone: tableMode ? null : form.noHp,
         order_type: tableMode ? null : orderType,
         table_id: tableMode ? Number(mejaId) : null,
+        branch_id: !tableMode && branchId ? Number(branchId) : null,
         items: [
           // Porsi prasmanan: kuah wajib + topping bebas per porsi
           ...portions.map((p) => ({
@@ -233,7 +244,7 @@ export default function Order() {
             <div className="max-w-xl mx-auto mb-6 bg-chili/10 border border-chili/30 rounded-2xl px-5 py-4 flex items-center gap-4">
               <span className="text-3xl">🪑</span>
               <p className="text-sm text-char/80">
-                Kamu memesan untuk <strong>Meja {table.label}</strong>. Pelayan akan mengantar pesanan ke meja ini —
+                Kamu memesan untuk <strong>Meja {table.label}</strong>{table.branch_name ? <> ({table.branch_name})</> : null}. Pelayan akan mengantar pesanan ke meja ini —
                 tunjukkan halaman ini ke pelayan bila perlu.
               </p>
             </div>
@@ -453,6 +464,16 @@ export default function Order() {
                           {t.label}
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {!tableMode && branches.length > 1 && (
+                    <div>
+                      <label htmlFor="cabang" className="block text-sm font-bold mb-1.5">Cabang</label>
+                      <select id="cabang" required value={branchId} onChange={(e) => setBranchId(e.target.value)} className={inputCls}>
+                        <option value="">Pilih cabang…</option>
+                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}{b.address ? ` — ${b.address}` : ''}</option>)}
+                      </select>
                     </div>
                   )}
 

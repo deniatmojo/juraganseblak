@@ -24,7 +24,8 @@ const router = Router();
 router.get('/', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY id'
+      `SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at, u.branch_id, b.name AS branch_name
+       FROM users u LEFT JOIN branches b ON b.id = u.branch_id ORDER BY u.id`
     );
     res.json(rows);
   } catch (e) { next(e); }
@@ -33,16 +34,16 @@ router.get('/', async (_req, res, next) => {
 // POST /api/users — buat akun { name, email, password, role }
 router.post('/', async (req, res, next) => {
   try {
-    const { name, email, password, role = 'kasir' } = req.body || {};
+    const { name, email, password, role = 'kasir', branch_id = null } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Nama, email, dan password wajib diisi' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
     if (!['owner', 'admin', 'kasir', 'karyawan'].includes(role)) return res.status(400).json({ error: 'Role tidak valid' });
     const hash = bcrypt.hashSync(String(password), 10);
     const [result] = await pool.query(
-      'INSERT INTO users (name, email, password_hash, role) VALUES (:name, :email, :hash, :role)',
-      { name, email, hash, role }
+      'INSERT INTO users (name, email, password_hash, role, branch_id) VALUES (:name, :email, :hash, :role, :branch)',
+      { name, email, hash, role, branch: branch_id ? Number(branch_id) : null }
     );
-    res.status(201).json({ id: result.insertId, name, email, role, is_active: 1 });
+    res.status(201).json({ id: result.insertId, name, email, role, is_active: 1, branch_id: branch_id ? Number(branch_id) : null });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email sudah terdaftar' });
     next(e);
@@ -60,7 +61,8 @@ router.patch('/:id', async (req, res, next) => {
       if (String(body.password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
       await pool.query('UPDATE users SET password_hash = :h WHERE id = :id', { h: bcrypt.hashSync(String(body.password), 10), id });
     }
-    const sets = ['name', 'role', 'is_active'].filter((f) => body[f] !== undefined);
+    const sets = ['name', 'role', 'is_active', 'branch_id'].filter((f) => body[f] !== undefined);
+    if (body.branch_id === '') body.branch_id = null; // kosong = tidak dikunci ke cabang
     if (body.role !== undefined && !['owner', 'admin', 'kasir', 'karyawan'].includes(body.role)) {
       return res.status(400).json({ error: 'Role tidak valid' });
     }
@@ -71,7 +73,7 @@ router.patch('/:id', async (req, res, next) => {
       for (const f of sets) params[f] = body[f];
       await pool.query(`UPDATE users SET ${sets.map((f) => `${f} = :${f}`).join(', ')} WHERE id = :id`, params);
     }
-    const [[user]] = await pool.query('SELECT id, name, email, role, is_active FROM users WHERE id = :id', { id });
+    const [[user]] = await pool.query('SELECT id, name, email, role, is_active, branch_id FROM users WHERE id = :id', { id });
     if (!user) return res.status(404).json({ error: 'Akun tidak ditemukan' });
     res.json(user);
   } catch (e) { next(e); }

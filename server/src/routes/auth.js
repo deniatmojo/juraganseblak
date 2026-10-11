@@ -12,7 +12,7 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) return res.status(400).json({ error: 'Email dan password wajib diisi' });
 
     const [[user]] = await pool.query(
-      'SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = :email',
+      'SELECT id, name, email, password_hash, role, is_active, branch_id FROM users WHERE email = :email',
       { email }
     );
     // Pesan generik: jangan bocorkan email mana yang terdaftar.
@@ -20,7 +20,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Email atau password salah' });
     }
 
-    const logged = { id: user.id, name: user.name, email: user.email, role: user.role };
+    const logged = { id: user.id, name: user.name, email: user.email, role: user.role, branch_id: user.branch_id ?? null };
     res.json({ token: signToken(logged), user: logged });
   } catch (e) { next(e); }
 });

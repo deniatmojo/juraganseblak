@@ -12,7 +12,7 @@ export default function Karyawan() {
   const [success, setSuccess] = useState('')
 
   // Form akun login
-  const [accForm, setAccForm] = useState({ name: '', email: '', password: '', role: 'kasir' })
+  const [accForm, setAccForm] = useState({ name: '', email: '', password: '', role: 'kasir', branch_id: '' })
   // Form karyawan
   const [empForm, setEmpForm] = useState({ name: '', role: '', phone: '', daily_rate: '', user_id: '', branch_id: '' })
   const [resetTarget, setResetTarget] = useState(null) // user yang di-reset password
@@ -30,7 +30,7 @@ export default function Karyawan() {
     try {
       await api.post('/users', accForm)
       setSuccess(`Akun ${accForm.name} berhasil dibuat.`)
-      setAccForm({ name: '', email: '', password: '', role: 'kasir' })
+      setAccForm({ name: '', email: '', password: '', role: 'kasir', branch_id: '' })
       load()
     } catch (err) { setError(err.message) }
   }
@@ -120,6 +120,15 @@ export default function Karyawan() {
               <option value="owner">Super Admin</option>
             </select>
           </div>
+          {(accForm.role === 'admin' || accForm.role === 'kasir') && (
+            <div>
+              <label className="block text-sm font-bold mb-1.5">Cabang</label>
+              <select value={accForm.branch_id} onChange={(e) => setAccForm({ ...accForm, branch_id: e.target.value })} className={inputCls}>
+                <option value="">{accForm.role === 'admin' ? 'Semua cabang (tidak dikunci)' : 'Pilih saat buka shift'}</option>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
           <div className="md:col-span-4">
             <button type="submit" className="bg-chili hover:bg-chili-dark text-white font-bold px-8 py-3.5 rounded-full transition-colors text-sm">
               Buat Akun
@@ -134,6 +143,7 @@ export default function Karyawan() {
                 <th className="px-6 py-3 font-semibold">Nama</th>
                 <th className="px-6 py-3 font-semibold">Email</th>
                 <th className="px-6 py-3 font-semibold">Role</th>
+                <th className="px-6 py-3 font-semibold">Cabang</th>
                 <th className="px-6 py-3 font-semibold">Status</th>
                 <th className="px-6 py-3 font-semibold text-right">Aksi</th>
               </tr>
@@ -145,6 +155,19 @@ export default function Karyawan() {
                   <td className="px-6 py-4">{u.email}</td>
                   <td className="px-6 py-4">
                     <span className="inline-block bg-ember/15 text-ember-dark text-xs font-bold px-3 py-1 rounded-full">{roleLabels[u.role] || u.role}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {u.role === 'admin' || u.role === 'kasir' ? (
+                      <select
+                        value={u.branch_id ?? ''}
+                        onChange={(e) => api.patch(`/users/${u.id}`, { branch_id: e.target.value ? Number(e.target.value) : null }).then(load).catch((err) => setError(err.message))}
+                        className="border border-black/10 rounded-lg px-2 py-1.5 text-xs bg-white"
+                        title={u.role === 'admin' ? 'Admin dikunci ke cabang ini' : 'Cabang bawaan kasir (dipilih saat buka shift)'}
+                      >
+                        <option value="">{u.role === 'admin' ? 'Semua cabang' : 'Pilih saat shift'}</option>
+                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    ) : <span className="text-char/30">—</span>}
                   </td>
                   <td className="px-6 py-4">
                     {u.is_active ? (

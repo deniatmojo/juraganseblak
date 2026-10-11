@@ -31,7 +31,7 @@ export function groupOrderItems(items) {
 }
 
 export default function Pos() {
-  const { user } = useOutletContext()
+  const { user, branch: ctxBranch } = useOutletContext()
   const [search, setSearch] = useState('')
   const [activeCat, setActiveCat] = useState('semua')
   // Keranjang campuran: item biasa {uid, id, name, cat, price, qty, note} dan
@@ -77,9 +77,21 @@ export default function Pos() {
   }
   useEffect(loadShift, [])
 
+  // Cabang dipilih saat membuka shift: transaksi & pemotongan stok shift ini
+  // mengikuti cabang tersebut. Default: cabang aktif di header / cabang akun.
+  const [branches, setBranches] = useState([])
+  const [shiftBranch, setShiftBranch] = useState('')
+  useEffect(() => {
+    api.get('/branch-options').then((rows) => {
+      setBranches(rows)
+      const pref = [user?.branch_id, ctxBranch].map(String).find((v) => rows.some((b) => String(b.id) === v))
+      setShiftBranch(pref ?? String(rows[0]?.id ?? ''))
+    }).catch(() => {})
+  }, [user?.branch_id, ctxBranch])
+
   const startShift = async () => {
     try {
-      const s = await api.post('/shifts', { opening_cash: Number(shiftCash || 0) })
+      const s = await api.post('/shifts', { opening_cash: Number(shiftCash || 0), branch_id: Number(shiftBranch) || undefined })
       setShift(s)
       setShiftModal(null)
       setShiftCash('')
@@ -486,6 +498,7 @@ export default function Pos() {
               <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shrink-0"></span>
               <p className="text-xs font-bold text-green-800">
                 Shift aktif sejak {new Date(shift.opened_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                {shift.branch_name && <>&nbsp;·&nbsp;Cabang {shift.branch_name}</>}
                 &nbsp;·&nbsp;Kas awal {formatRp(shift.opening_cash)}
                 &nbsp;·&nbsp;{shift.totals.order_count} pesanan · {formatRp(shift.totals.sales_total)}
               </p>
@@ -949,6 +962,19 @@ export default function Pos() {
                 : `Penjualan tunai shift ini: ${formatRp(shift?.totals.cash_total || 0)}. Hitung uang di laci dan catat sebagai kas akhir.`}
             </p>
 
+            {shiftModal === 'open' && (
+              <>
+                <label className="block text-sm font-bold mb-1.5">Cabang</label>
+                <select
+                  value={shiftBranch}
+                  onChange={(e) => setShiftBranch(e.target.value)}
+                  disabled={user?.role === 'admin' && Boolean(user?.branch_id)}
+                  className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm mb-4 bg-white focus:outline-none focus:ring-2 focus:ring-chili/30"
+                >
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </>
+            )}
             <label className="block text-sm font-bold mb-1.5">{shiftModal === 'open' ? 'Kas Awal (Rp)' : 'Kas Akhir di Laci (Rp)'}</label>
             <input
               type="number"

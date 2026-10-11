@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireRole } from '../auth.js';
+import { resolveBranch, mainBranchId } from '../branch.js';
 
 const router = Router();
 
@@ -24,13 +25,18 @@ async function shiftTotals(shiftId) {
 }
 
 // GET /api/shifts — riwayat shift (owner/admin)
-router.get('/', requireRole('owner', 'admin'), async (_req, res, next) => {
+router.get('/', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
+    const branch = await resolveBranch(req, { allowAll: true });
+    const params = {};
+    const where = branch != null ? 'WHERE s.branch_id = :branch' : '';
+    if (branch != null) params.branch = branch;
     const [rows] = await pool.query(
       `SELECT s.id, u.name AS cashier_name, s.opening_cash, s.closing_cash, s.expected_cash,
-              s.opened_at, s.closed_at, s.note
+              s.opened_at, s.closed_at, s.note, s.branch_id, b.name AS branch_name
        FROM shifts s JOIN users u ON u.id = s.user_id
-       ORDER BY s.opened_at DESC LIMIT 100`
+       LEFT JOIN branches b ON b.id = s.branch_id ${where}
+       ORDER BY s.opened_at DESC LIMIT 100`, params
     );
     res.json(rows.map((r) => ({
       ...r,
@@ -45,12 +51,14 @@ router.get('/', requireRole('owner', 'admin'), async (_req, res, next) => {
 router.get('/active', async (req, res, next) => {
   try {
     const [[shift]] = await pool.query(
-      'SELECT id, opening_cash, opened_at FROM shifts WHERE user_id = :u AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
+      `SELECT s.id, s.opening_cash, s.opened_at, s.branch_id, b.name AS branch_name
+       FROM shifts s LEFT JOIN branches b ON b.id = s.branch_id
+       WHERE s.user_id = :u AND s.closed_at IS NULL ORDER BY s.id DESC LIMIT 1`,
       { u: req.user.id }
     );
     if (!shift) return res.json(null);
     const totals = await shiftTotals(shift.id);
-    res.json({ id: shift.id, opening_cash: Number(shift.opening_cash), opened_at: shift.opened_at, totals });
+    res.json({ id: shift.id, opening_cash: Number(shift.opening_cash), opened_at: shift.opened_at, branch_id: shift.branch_id, branch_name: shift.branch_name, totals });
   } catch (e) { next(e); }
 });
 
@@ -62,11 +70,27 @@ router.post('/', async (req, res, next) => {
     );
     if (open) return res.status(409).json({ error: 'Masih ada shift yang terbuka. Tutup dulu shift sebelumnya.' });
     const { opening_cash = 0, note = null } = req.body || {};
+    // Cabang dipilih saat buka shift (transaksi & stok shift ini mengikuti cabang ini).
+    // Tanpa pilihan: cabang bawaan akun, lalu cabang utama.
+    let branchId = Number(req.body?.branch_id) || null;
+    if (branchId) {
+      const [[br]] = await pool.query('SELECT id FROM branches WHERE id = :b AND is_active = 1', { b: branchId });
+      if (!br) return res.status(400).json({ error: 'Cabang tidak valid' });
+    } else {
+      const [[u]] = await pool.query('SELECT branch_id FROM users WHERE id = :u', { u: req.user.id });
+      branchId = u?.branch_id ?? await mainBranchId();
+    }
+    // Admin yang dikunci ke satu cabang hanya boleh membuka shift di cabangnya.
+    if (req.user.role === 'admin') {
+      const [[u]] = await pool.query('SELECT branch_id FROM users WHERE id = :u', { u: req.user.id });
+      if (u?.branch_id && u.branch_id !== branchId) return res.status(403).json({ error: 'Anda hanya bisa membuka shift di cabang Anda' });
+    }
     const [result] = await pool.query(
-      'INSERT INTO shifts (user_id, opening_cash, note) VALUES (:u, :cash, :note)',
-      { u: req.user.id, cash: opening_cash, note }
+      'INSERT INTO shifts (user_id, opening_cash, note, branch_id) VALUES (:u, :cash, :note, :b)',
+      { u: req.user.id, cash: opening_cash, note, b: branchId }
     );
-    res.status(201).json({ id: result.insertId, opening_cash: Number(opening_cash), opened_at: new Date(), totals: { order_count: 0, sales_total: 0, cash_total: 0, qris_total: 0, debit_total: 0 } });
+    const [[brRow]] = await pool.query('SELECT name FROM branches WHERE id = :b', { b: branchId });
+    res.status(201).json({ id: result.insertId, opening_cash: Number(opening_cash), opened_at: new Date(), branch_id: branchId, branch_name: brRow?.name ?? null, totals: { order_count: 0, sales_total: 0, cash_total: 0, qris_total: 0, debit_total: 0 } });
   } catch (e) { next(e); }
 });
 

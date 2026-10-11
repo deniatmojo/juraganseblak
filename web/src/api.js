@@ -1,6 +1,26 @@
 // Wrapper API client — semua halaman memakai modul ini untuk akses backend.
+import { getBranch } from './branch'
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 const TOKEN_KEY = 'erp_token'
+
+// Endpoint yang mengikuti cabang aktif. Cabang disuntikkan otomatis (query pada
+// GET, field body pada POST/PATCH) bila halaman belum menentukannya sendiri.
+// Kasir tidak disuntik: server memakai cabang shift-nya.
+const BRANCH_PATHS = ['/stock', '/orders', '/shifts', '/transactions', '/finance', '/online/tables']
+
+function withBranch(path, method, body) {
+  let role = null
+  try { role = JSON.parse(sessionStorage.getItem('erp_user'))?.role } catch { /* abaikan */ }
+  const branch = getBranch()
+  if (!branch || role === 'kasir' || !BRANCH_PATHS.some((p) => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'))) {
+    return { path, body }
+  }
+  if (method === 'GET') {
+    return { path: /[?&]branch_id=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}branch_id=${branch}`, body }
+  }
+  if (body && typeof body === 'object' && body.branch_id === undefined) return { path, body: { ...body, branch_id: branch } }
+  return { path, body }
+}
 
 export function getToken() {
   return sessionStorage.getItem(TOKEN_KEY)
@@ -11,7 +31,8 @@ export function setToken(token) {
   else sessionStorage.removeItem(TOKEN_KEY)
 }
 
-async function request(path, { method = 'GET', body } = {}) {
+async function request(rawPath, { method = 'GET', body: rawBody } = {}) {
+  const { path, body } = withBranch(rawPath, method, rawBody)
   const token = getToken()
   const res = await fetch(`${BASE}${path}`, {
     method,

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { nextOrderNo, parseOrderItems } from './orders.js';
+import { resolveBranch, mainBranchId } from '../branch.js';
 
 // Router pesanan online (publik — dipasang SEBELUM guard auth global di
 // index.js). Endpoint pelanggan (menu, buat pesanan, lacak) terbuka tanpa
@@ -39,6 +40,15 @@ router.get('/store', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/online/branches — cabang aktif (publik) untuk memilih cabang pada
+// pesanan delivery/pickup/reservasi di halaman /order.
+router.get('/branches', async (_req, res, next) => {
+  try {
+    const [rows] = await pool.query('SELECT id, name, address FROM branches WHERE is_active = 1 ORDER BY id');
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
 // GET /api/online/menu — daftar menu aktif & tersedia untuk dipesan online.
 // category_key dipakai halaman pemesanan membedakan porsi prasmanan
 // (kuah/topping) dari item biasa (minuman).
@@ -58,14 +68,21 @@ router.get('/menu', async (_req, res, next) => {
 // /order?meja=ID untuk menampilkan label meja & admin untuk kelola + QR).
 router.get('/tables', async (_req, res, next) => {
   try {
-    res.json(await pool.query('SELECT id, label, is_active FROM dining_tables ORDER BY id').then(([rows]) => rows));
+    res.json(await pool.query(
+      `SELECT t.id, t.label, t.is_active, t.branch_id, b.name AS branch_name
+       FROM dining_tables t LEFT JOIN branches b ON b.id = t.branch_id ORDER BY t.id`
+    ).then(([rows]) => rows));
   } catch (e) { next(e); }
 });
 
 // GET /api/online/tables/:id — validasi satu meja (publik, dari QR di meja).
 router.get('/tables/:id', async (req, res, next) => {
   try {
-    const [[row]] = await pool.query('SELECT id, label, is_active FROM dining_tables WHERE id = :id', { id: Number(req.params.id) });
+    const [[row]] = await pool.query(
+      `SELECT t.id, t.label, t.is_active, t.branch_id, b.name AS branch_name
+       FROM dining_tables t LEFT JOIN branches b ON b.id = t.branch_id WHERE t.id = :id`,
+      { id: Number(req.params.id) }
+    );
     if (!row || !row.is_active) return res.status(404).json({ error: 'Meja tidak ditemukan' });
     res.json(row);
   } catch (e) { next(e); }
@@ -76,10 +93,11 @@ router.post('/tables', requireAuth, requireRole('owner', 'admin'), async (req, r
   try {
     const label = String(req.body?.label || '').trim();
     if (!label) return res.status(400).json({ error: 'Nama/label meja wajib diisi' });
-    const [[dup]] = await pool.query('SELECT id FROM dining_tables WHERE label = :l', { l: label });
-    if (dup) return res.status(409).json({ error: `Meja "${label}" sudah ada` });
-    const [result] = await pool.query('INSERT INTO dining_tables (label) VALUES (:l)', { l: label });
-    res.status(201).json({ id: result.insertId, label, is_active: 1 });
+    const branch = await resolveBranch(req);
+    const [[dup]] = await pool.query('SELECT id FROM dining_tables WHERE label = :l AND branch_id = :b', { l: label, b: branch });
+    if (dup) return res.status(409).json({ error: `Meja "${label}" sudah ada di cabang ini` });
+    const [result] = await pool.query('INSERT INTO dining_tables (label, branch_id) VALUES (:l, :b)', { l: label, b: branch });
+    res.status(201).json({ id: result.insertId, label, is_active: 1, branch_id: branch });
   } catch (e) { next(e); }
 });
 
@@ -100,6 +118,13 @@ router.patch('/tables/:id', requireAuth, requireRole('owner', 'admin'), async (r
     if (req.body?.is_active != null) {
       updates.push('is_active = :act');
       params.act = req.body.is_active ? 1 : 0;
+    }
+    if (req.body?.branch_id != null && req.user.role === 'owner') {
+      const b = Number(req.body.branch_id);
+      const [[br]] = await pool.query('SELECT id FROM branches WHERE id = :b AND is_active = 1', { b });
+      if (!br) return res.status(400).json({ error: 'Cabang tidak valid' });
+      updates.push('branch_id = :branch');
+      params.branch = b;
     }
     if (updates.length) await pool.query(`UPDATE dining_tables SET ${updates.join(', ')} WHERE id = :id`, params);
     res.json({ ok: true });
@@ -135,7 +160,7 @@ router.post('/orders', async (req, res, next) => {
     // pembayaran langsung di meja lalu kasir meng-ACC.
     let table = null;
     if (table_id != null) {
-      const [[t]] = await conn.query('SELECT id, label FROM dining_tables WHERE id = :id AND is_active = 1', { id: Number(table_id) });
+      const [[t]] = await conn.query('SELECT id, label, branch_id FROM dining_tables WHERE id = :id AND is_active = 1', { id: Number(table_id) });
       if (!t) {
         return res.status(400).json({ error: 'QR meja tidak valid' });
       }
@@ -152,6 +177,16 @@ router.post('/orders', async (req, res, next) => {
     const phone = String(customer_phone || '').replace(/[^\d+]/g, '');
     if (!table && phone.replace(/\D/g, '').length < 8) {
       return res.status(400).json({ error: 'Nomor HP/WhatsApp tidak valid' });
+    }
+    // Cabang pesanan: meja QR membawa cabangnya sendiri; delivery/pickup/reservasi
+    // dipilih pelanggan (otomatis bila hanya ada satu cabang aktif).
+    let branchId = table ? (table.branch_id ?? await mainBranchId(conn)) : null;
+    if (!branchId) {
+      const [active] = await conn.query('SELECT id FROM branches WHERE is_active = 1');
+      const wanted = Number(req.body?.branch_id);
+      if (wanted && active.some((b) => b.id === wanted)) branchId = wanted;
+      else if (active.length === 1) branchId = active[0].id;
+      else return res.status(400).json({ error: 'Pilih cabang tujuan pesanan' });
     }
     const effectiveType = table ? 'dinein' : order_type;
     if (!['dinein', 'delivery', 'pickup'].includes(effectiveType)) {
@@ -216,15 +251,15 @@ router.post('/orders', async (req, res, next) => {
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, customer_phone, order_type,
         schedule_at, table_no, delivery_address, customer_note, subtotal,
-        tax_amount, service_amount, total, pay_method, status, track_code)
+        tax_amount, service_amount, total, pay_method, status, track_code, branch_id)
        VALUES (:order_no, 'online', :customer, :phone, :order_type,
         :schedule_at, :table_no, :address, :note, :subtotal,
-        :tax, :service, :total, 'qris', 'pending', :track_code)`,
+        :tax, :service, :total, 'qris', 'pending', :track_code, :branch)`,
       {
         order_no: orderNo, customer: ordererName, phone: phone || null,
         order_type: effectiveType, schedule_at: scheduleAt, table_no: table?.label ?? null,
         address: delivery_address?.trim() || null,
-        note: note?.trim() || null, subtotal, tax, service, total, track_code: trackCode,
+        note: note?.trim() || null, subtotal, tax, service, total, track_code: trackCode, branch: branchId,
       }
     );
     const orderId = orderResult.insertId;

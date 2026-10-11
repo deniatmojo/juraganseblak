@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { api } from '../../api'
@@ -95,12 +95,13 @@ function OrderCard({ order, onAcc, onCancel, onProgress, busy }) {
 }
 
 // Kartu QR satu meja (tampilan layar admin).
-function TableQrCard({ table, qrUrl, busy, onRename, onToggle, onDelete }) {
+function TableQrCard({ table, qrUrl, busy, showBranch, onRename, onToggle, onDelete }) {
   return (
     <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-5 flex flex-col items-center gap-3 text-center ${!table.is_active ? 'opacity-50' : ''}`}>
       {qrUrl && <img src={qrUrl} alt={`QR Meja ${table.label}`} className="w-36 h-36" />}
       <div>
         <p className="font-display text-xl">🪑 Meja {table.label}</p>
+        {showBranch && table.branch_name && <p className="text-xs text-char/50 mt-0.5">{table.branch_name}</p>}
         {!table.is_active && <p className="text-xs text-chili font-bold mt-0.5">Nonaktif — QR tidak bisa dipakai</p>}
       </div>
       <div className="flex flex-wrap gap-2 justify-center">
@@ -135,7 +136,13 @@ function TableQrPrintSheet({ tables, qrUrls }) {
 
 // Tab QR Meja: kelola daftar meja + QR per meja untuk ditempel di meja.
 function QrMejaView() {
-  const [tables, setTables] = useState([])
+  const { branch } = useOutletContext() ?? {}
+  const [allTables, setTables] = useState([])
+  // Meja difilter ke cabang aktif ('all' = tampilkan semua cabang).
+  const tables = useMemo(
+    () => (branch && branch !== 'all' ? allTables.filter((t) => String(t.branch_id) === branch) : allTables),
+    [allTables, branch],
+  )
   const [qrUrls, setQrUrls] = useState({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -237,7 +244,7 @@ function QrMejaView() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 print:hidden">
           {tables.map((t) => (
-            <TableQrCard key={t.id} table={t} qrUrl={qrUrls[t.id]} busy={busy} onRename={rename} onToggle={toggle} onDelete={remove} />
+            <TableQrCard key={t.id} table={t} qrUrl={qrUrls[t.id]} busy={busy} showBranch={branch === 'all'} onRename={rename} onToggle={toggle} onDelete={remove} />
           ))}
         </div>
       )}

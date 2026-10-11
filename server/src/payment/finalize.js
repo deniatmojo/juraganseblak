@@ -1,5 +1,6 @@
 import { pool } from '../db.js';
 import { linksForProducts } from '../routes/products.js';
+import { deductStock, mainBranchId } from '../branch.js';
 
 // Finalisasi pesanan pending menjadi 'paid': potong stok bahan, catat pemasukan,
 // set status + paid_at. Dipanggil dari webhook gateway, polling manual kasir
@@ -17,6 +18,9 @@ export async function markOrderPaid(orderId, { provider = 'manual', ref = null, 
       return { ok: true, already: true, order_no: order.order_no };
     }
     if (order.status === 'canceled') throw new Error('Pesanan sudah dibatalkan, tidak bisa dilunasi');
+
+    // Pesanan lama tanpa cabang (sebelum migrasi 08) jatuh ke cabang utama.
+    const branchId = order.branch_id ?? await mainBranchId(conn);
 
     const [items] = await conn.query(
       'SELECT oi.product_id, oi.qty, p.name, p.stock_qty_per_unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id',
@@ -38,18 +42,14 @@ export async function markOrderPaid(orderId, { provider = 'manual', ref = null, 
       for (const l of links) {
         const used = Number(l.qty_per_unit) * it.qty;
         if (!(used > 0)) continue;
-        await conn.query('UPDATE stock_items SET qty = GREATEST(qty - :used, 0) WHERE id = :id', { used, id: l.stock_item_id });
-        await conn.query(
-          "INSERT INTO stock_movements (item_id, type, qty, note, created_by) VALUES (:item, 'out', :used, :note, :user)",
-          { item: l.stock_item_id, used, note: `Penjualan ${order.order_no}`, user: confirmedBy }
-        );
+        await deductStock(conn, { itemId: l.stock_item_id, branchId, used, note: `Penjualan ${order.order_no}`, userId: confirmedBy });
       }
     }
 
     await conn.query(
-      `INSERT INTO transactions (type, category, amount, note, ref_order, created_by)
-       VALUES ('income', 'penjualan', :total, :note, :ref, :by)`,
-      { total: order.total, note: `Penjualan ${order.order_no}`, ref: order.id, by: confirmedBy }
+      `INSERT INTO transactions (type, category, amount, note, ref_order, created_by, branch_id)
+       VALUES ('income', 'penjualan', :total, :note, :ref, :by, :branch)`,
+      { total: order.total, note: `Penjualan ${order.order_no}`, ref: order.id, by: confirmedBy, branch: branchId }
     );
     // Pesanan online yang lunas otomatis masuk antrian (progress 'queue');
     // pesanan POS tidak memakai kolom progress.

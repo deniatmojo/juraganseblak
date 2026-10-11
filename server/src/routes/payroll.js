@@ -118,7 +118,7 @@ router.post('/pay', async (req, res, next) => {
 
     await conn.beginTransaction();
     const [[emp]] = await conn.query(
-      'SELECT id, name, daily_rate FROM employees WHERE id = :id AND is_active = 1 FOR UPDATE',
+      'SELECT id, name, daily_rate, branch_id FROM employees WHERE id = :id AND is_active = 1 FOR UPDATE',
       { id: Number(employee_id) }
     );
     if (!emp) { await conn.rollback(); return res.status(404).json({ error: 'Karyawan tidak ditemukan' }); }
@@ -149,9 +149,9 @@ router.post('/pay', async (req, res, next) => {
       { id: emp.id }
     );
     await conn.query(
-      `INSERT INTO transactions (type, category, amount, note, created_by)
-       VALUES ('expense', 'gaji', :amount, :note, :by)`,
-      { amount: total, note: `Gaji ${emp.name} periode ${from} s/d ${to} (${agg.days} hari)${kasbon > 0 ? ` − kasbon ${kasbon}` : ''}`, by: req.user.id }
+      `INSERT INTO transactions (type, category, amount, note, created_by, branch_id)
+       VALUES ('expense', 'gaji', :amount, :note, :by, :branch)`,
+      { branch: emp.branch_id ?? null, amount: total, note: `Gaji ${emp.name} periode ${from} s/d ${to} (${agg.days} hari)${kasbon > 0 ? ` − kasbon ${kasbon}` : ''}`, by: req.user.id }
     );
     const [payRes] = await conn.query(
       `INSERT INTO payroll_payments (employee_id, from_date, to_date, days, gaji, kasbon, total, paid_by)
