@@ -82,7 +82,10 @@ export default function Order() {
   const serviceRate = store?.service_rate ?? 0
   const tax = Math.round(subtotal * taxRate)
   const service = Math.round(subtotal * serviceRate)
-  const total = subtotal + tax + service
+  const roundingStep = Number(store?.rounding_step) || 0
+  const rawTotal = subtotal + tax + service
+  const total = roundingStep > 0 ? Math.ceil(rawTotal / roundingStep) * roundingStep : rawTotal
+  const rounding = total - rawTotal
   const cartCount = cartItems.reduce((s, it) => s + it.qty, 0) + portions.reduce((s, p) => s + p.qty, 0)
 
   const changeQty = (id, delta) => {
@@ -437,7 +440,8 @@ export default function Order() {
                   <div className="space-y-1 text-sm text-char/60 border-t border-black/5 pt-4">
                     <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(subtotal)}</span></div>
                     {taxRate > 0 && <div className="flex justify-between"><span>Pajak {Math.round(taxRate * 100)}%</span><span>{rupiah(tax)}</span></div>}
-                    {serviceRate > 0 && <div className="flex justify-between"><span>Service {Math.round(serviceRate * 100)}%</span><span>{rupiah(service)}</span></div>}
+                    {serviceRate > 0 && <div className="flex justify-between"><span>Service {Number((serviceRate * 100).toFixed(2))}%</span><span>{rupiah(service)}</span></div>}
+                    {rounding > 0 && <div className="flex justify-between"><span>Pembulatan</span><span>{rupiah(rounding)}</span></div>}
                   </div>
                 )}
                 {(portions.length > 0 || cartItems.length > 0) && (

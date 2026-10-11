@@ -4,6 +4,7 @@ import { linksForProducts } from './products.js';
 import { requireRole } from '../auth.js';
 import { dateCompactWib } from '../wib.js';
 import { resolveBranch, deductStock } from '../branch.js';
+import { computeTotals } from '../pricing.js';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ async function getSettings() {
   return {
     tax_rate: Number(s.tax_rate ?? 0),
     service_rate: Number(s.service_rate ?? 0),
+    rounding_step: Number(s.rounding_step ?? 0),
     store_name: s.store_name ?? 'Juragan Seblak',
     store_address: s.store_address ?? '',
     store_phone: s.store_phone ?? '',
@@ -125,9 +127,7 @@ router.post('/', async (req, res, next) => {
     // QRIS dinamis via gateway hanya kalau gateway aktif & kasir minta pending.
     const isPending = pending === true && pay_method === 'qris' && settings.payment_gateway && settings.payment_gateway !== 'none';
     const subtotal = lines.reduce((sum, l) => sum + Number(byId[l.product_id].price) * l.qty, 0);
-    const tax = Math.round(subtotal * settings.tax_rate);
-    const service = Math.round(subtotal * settings.service_rate);
-    const total = subtotal + tax + service - Number(discount);
+    const { tax, service, rounding, total } = computeTotals(subtotal, settings, discount);
 
     const orderNo = await nextOrderNo(conn);
 
@@ -142,10 +142,10 @@ router.post('/', async (req, res, next) => {
 
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, table_no, subtotal,
-        tax_amount, service_amount, discount, total, pay_method, paid_amount, status, cashier_id, shift_id, branch_id)
+        tax_amount, service_amount, discount, rounding_amount, total, pay_method, paid_amount, status, cashier_id, shift_id, branch_id)
        VALUES (:order_no, :channel, :customer, :table_no, :subtotal,
-        :tax, :service, :discount, :total, :pay_method, :paid, :status, :cashier, :shift, :branch)`,
-      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, total, pay_method, paid: paid_amount, status: isPending ? 'pending' : 'paid', cashier: req.user?.id ?? null, shift: openShift?.id ?? null, branch: branchId }
+        :tax, :service, :discount, :rounding, :total, :pay_method, :paid, :status, :cashier, :shift, :branch)`,
+      { order_no: orderNo, channel, customer: customer_name, table_no, subtotal, tax, service, discount, rounding, total, pay_method, paid: paid_amount, status: isPending ? 'pending' : 'paid', cashier: req.user?.id ?? null, shift: openShift?.id ?? null, branch: branchId }
     );
     const orderId = orderResult.insertId;
 
@@ -201,6 +201,7 @@ router.post('/', async (req, res, next) => {
       tax_amount: tax,
       service_amount: service,
       discount: Number(discount),
+      rounding_amount: rounding,
       total,
       pay_method,
       paid_amount,
@@ -232,7 +233,7 @@ router.get('/', async (req, res, next) => {
     const where = cond.length ? ` WHERE ${cond.join(' AND ')}` : '';
     const [rows] = await pool.query(
       `SELECT o.id, o.order_no, o.channel, o.customer_name, o.table_no, o.subtotal,
-              o.tax_amount, o.service_amount, o.discount, o.total, o.pay_method,
+              o.tax_amount, o.service_amount, o.discount, o.rounding_amount, o.total, o.pay_method,
               o.paid_amount, o.status, o.void_reason, o.voided_at,
               o.customer_phone, o.order_type, o.schedule_at, o.delivery_address,
               o.customer_note, o.progress, o.progress_updated_at,
@@ -253,7 +254,7 @@ router.get('/', async (req, res, next) => {
     res.json(rows.map((r) => ({
       ...r,
       subtotal: Number(r.subtotal), tax_amount: Number(r.tax_amount),
-      service_amount: Number(r.service_amount), discount: Number(r.discount),
+      service_amount: Number(r.service_amount), discount: Number(r.discount), rounding_amount: Number(r.rounding_amount),
       total: Number(r.total), paid_amount: r.paid_amount == null ? null : Number(r.paid_amount),
     })));
   } catch (e) { next(e); }

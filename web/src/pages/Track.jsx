@@ -277,6 +277,7 @@ export default function Track() {
                   <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(order.subtotal)}</span></div>
                   {order.tax_amount > 0 && <div className="flex justify-between"><span>Pajak</span><span>{rupiah(order.tax_amount)}</span></div>}
                   {order.service_amount > 0 && <div className="flex justify-between"><span>Service</span><span>{rupiah(order.service_amount)}</span></div>}
+                  {order.rounding_amount > 0 && <div className="flex justify-between"><span>Pembulatan</span><span>{rupiah(order.rounding_amount)}</span></div>}
                   <div className="flex justify-between font-bold text-char pt-1"><span>Total</span><span className="text-chili">{rupiah(order.total)}</span></div>
                 </div>
                 <p className="text-xs text-char/40 mt-4">Simpan kode pelacakanmu: <strong className="text-char/60">{order.track_code || '—'}</strong></p>

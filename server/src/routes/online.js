@@ -4,6 +4,7 @@ import { pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { nextOrderNo, parseOrderItems } from './orders.js';
 import { resolveBranch, mainBranchId } from '../branch.js';
+import { computeTotals } from '../pricing.js';
 
 // Router pesanan online (publik — dipasang SEBELUM guard auth global di
 // index.js). Endpoint pelanggan (menu, buat pesanan, lacak) terbuka tanpa
@@ -23,6 +24,7 @@ async function getSettings() {
     store_phone: s.store_phone ?? '',
     tax_rate: Number(s.tax_rate ?? 0),
     service_rate: Number(s.service_rate ?? 0),
+    rounding_step: Number(s.rounding_step ?? 0),
     // QRIS statis ditampilkan ke pelanggan untuk dibayar manual;
     // acc pembayaran sementara manual oleh admin kasir sampai
     // payment gateway aktif (webhook akan otomatis melunasi nanti).
@@ -241,9 +243,7 @@ router.post('/orders', async (req, res, next) => {
       await conn.rollback();
       return res.status(400).json({ error: 'Jumlah pesanan tidak valid' });
     }
-    const tax = Math.round(subtotal * settings.tax_rate);
-    const service = Math.round(subtotal * settings.service_rate);
-    const total = subtotal + tax + service;
+    const { tax, service, rounding, total } = computeTotals(subtotal, settings);
 
     const orderNo = await nextOrderNo(conn);
     const trackCode = crypto.randomBytes(4).toString('hex'); // 8 karakter acak
@@ -251,15 +251,15 @@ router.post('/orders', async (req, res, next) => {
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, customer_phone, order_type,
         schedule_at, table_no, delivery_address, customer_note, subtotal,
-        tax_amount, service_amount, total, pay_method, status, track_code, branch_id)
+        tax_amount, service_amount, rounding_amount, total, pay_method, status, track_code, branch_id)
        VALUES (:order_no, 'online', :customer, :phone, :order_type,
         :schedule_at, :table_no, :address, :note, :subtotal,
-        :tax, :service, :total, 'qris', 'pending', :track_code, :branch)`,
+        :tax, :service, :rounding, :total, 'qris', 'pending', :track_code, :branch)`,
       {
         order_no: orderNo, customer: ordererName, phone: phone || null,
         order_type: effectiveType, schedule_at: scheduleAt, table_no: table?.label ?? null,
         address: delivery_address?.trim() || null,
-        note: note?.trim() || null, subtotal, tax, service, total, track_code: trackCode, branch: branchId,
+        note: note?.trim() || null, subtotal, tax, service, rounding, total, track_code: trackCode, branch: branchId,
       }
     );
     const orderId = orderResult.insertId;
@@ -282,7 +282,7 @@ router.post('/orders', async (req, res, next) => {
       order_type: effectiveType,
       table_no: table?.label ?? null,
       customer_name,
-      subtotal, tax_amount: tax, service_amount: service, total,
+      subtotal, tax_amount: tax, service_amount: service, rounding_amount: rounding, total,
       status: 'pending',
       store_name: settings.store_name,
       items: orderItems,
@@ -308,7 +308,7 @@ router.get('/track/:orderNo', async (req, res, next) => {
     const [[order]] = await pool.query(
       `SELECT id, order_no, channel, customer_name, customer_phone, order_type,
               schedule_at, table_no, delivery_address, customer_note,
-              subtotal, tax_amount, service_amount, total, pay_method, status,
+              subtotal, tax_amount, service_amount, rounding_amount, total, pay_method, status,
               progress, progress_updated_at, paid_at, created_at, track_code
        FROM orders WHERE order_no = :no`,
       { no: req.params.orderNo }
@@ -328,7 +328,7 @@ router.get('/track/:orderNo', async (req, res, next) => {
     res.json({
       ...order,
       subtotal: Number(order.subtotal), tax_amount: Number(order.tax_amount),
-      service_amount: Number(order.service_amount), total: Number(order.total),
+      service_amount: Number(order.service_amount), rounding_amount: Number(order.rounding_amount), total: Number(order.total),
       items: items.map((i) => ({ ...i, unit_price: Number(i.unit_price) })),
     });
   } catch (e) { next(e); }

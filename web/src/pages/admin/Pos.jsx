@@ -60,7 +60,7 @@ export default function Pos() {
 
   const [menuItems, setMenuItems] = useState([])
   const [categories, setCategories] = useState([{ key: 'semua', label: 'Semua' }])
-  const [rates, setRates] = useState({ tax_rate: 0.1, service_rate: 0.05 })
+  const [rates, setRates] = useState({ tax_rate: 0.1, service_rate: 0.05, rounding_step: 0 })
   // Konfigurasi pembayaran dari settings: gateway aktif + gambar QRIS statis
   const [paySettings, setPaySettings] = useState({ gateway: 'none', qrisImage: '', qrisMerchant: '' })
   // Modal pembayaran QRIS: { type: 'static' } | { type: 'gateway', order, payment }
@@ -120,7 +120,7 @@ export default function Pos() {
           { key: 'semua', label: 'Semua' },
           ...cats.filter((c) => c.key !== 'kuah' && c.key !== 'topping').map((c) => ({ key: c.key, label: c.label })),
         ])
-        setRates({ tax_rate: settings.tax_rate ?? 0.1, service_rate: settings.service_rate ?? 0.05 })
+        setRates({ tax_rate: settings.tax_rate ?? 0.1, service_rate: settings.service_rate ?? 0.05, rounding_step: Number(settings.rounding_step) || 0 })
         setStore({
           name: settings.store_name || '',
           address: settings.store_address || '',
@@ -240,9 +240,13 @@ export default function Pos() {
     )
 
   const subtotal = cart.reduce((sum, c) => sum + lineTotal(c), 0)
-  const tax = subtotal * rates.tax_rate
-  const service = subtotal * rates.service_rate
-  const grandTotal = subtotal + tax + service
+  // Sama persis dengan server (pricing.js): pajak & layanan dibulatkan ke rupiah,
+  // lalu total dibulatkan ke atas ke kelipatan rounding_step bila diaktifkan.
+  const tax = Math.round(subtotal * rates.tax_rate)
+  const service = Math.round(subtotal * rates.service_rate)
+  const rawTotal = subtotal + tax + service
+  const grandTotal = rates.rounding_step > 0 ? Math.ceil(rawTotal / rates.rounding_step) * rates.rounding_step : rawTotal
+  const rounding = grandTotal - rawTotal
   const totalQty = cart.reduce((sum, c) => sum + c.qty, 0)
 
   const setReceiptFromOrder = (order) => {
@@ -255,6 +259,7 @@ export default function Pos() {
       subtotal: order.subtotal,
       tax: order.tax_amount,
       service: order.service_amount,
+      rounding: Number(order.rounding_amount) || 0,
       total: order.total,
       method: payLabels[order.pay_method] || order.pay_method,
       storeName: order.store_name,
@@ -432,6 +437,7 @@ export default function Pos() {
           subtotal: detail.subtotal,
           tax: detail.tax_amount,
           service: detail.service_amount,
+          rounding: Number(detail.rounding_amount) || 0,
           total: detail.total,
           method: payLabels[detail.pay_method] || detail.pay_method,
         },
@@ -471,6 +477,7 @@ export default function Pos() {
       `Subtotal: ${formatRp(receipt.subtotal)}`,
       `Pajak: ${formatRp(receipt.tax)}`,
       `Service: ${formatRp(receipt.service)}`,
+      ...(receipt.rounding > 0 ? [`Pembulatan: ${formatRp(receipt.rounding)}`] : []),
       `*Total: ${formatRp(receipt.total)}*`,
       `Metode: ${receipt.method}`,
       '',
@@ -644,7 +651,8 @@ export default function Pos() {
         <div className="px-6 py-5 border-t border-black/5 space-y-2.5 shrink-0">
           <div className="flex justify-between text-sm text-char/60"><span>Subtotal</span><span>{formatRp(subtotal)}</span></div>
           <div className="flex justify-between text-sm text-char/60"><span>Pajak ({Math.round(rates.tax_rate * 100)}%)</span><span>{formatRp(tax)}</span></div>
-          <div className="flex justify-between text-sm text-char/60"><span>Service Charge ({Math.round(rates.service_rate * 100)}%)</span><span>{formatRp(service)}</span></div>
+          <div className="flex justify-between text-sm text-char/60"><span>Service Charge ({Number((rates.service_rate * 100).toFixed(2))}%)</span><span>{formatRp(service)}</span></div>
+          {rounding > 0 && <div className="flex justify-between text-sm text-char/60"><span>Pembulatan</span><span>{formatRp(rounding)}</span></div>}
           <div className="flex justify-between items-center pt-2.5 border-t border-black/5">
             <span className="font-bold">Grand Total</span>
             <span className="font-display text-2xl text-chili">{formatRp(grandTotal)}</span>
@@ -1074,6 +1082,7 @@ export default function Pos() {
                 <div className="flex justify-between text-char/60"><span>Subtotal</span><span>{formatRp(receipt.subtotal)}</span></div>
                 <div className="flex justify-between text-char/60"><span>Pajak</span><span>{formatRp(receipt.tax)}</span></div>
                 <div className="flex justify-between text-char/60"><span>Service</span><span>{formatRp(receipt.service)}</span></div>
+                {receipt.rounding > 0 && <div className="flex justify-between text-char/60"><span>Pembulatan</span><span>{formatRp(receipt.rounding)}</span></div>}
                 <div className="flex justify-between font-bold pt-1.5 border-t border-dashed border-black/20"><span>Total</span><span>{formatRp(receipt.total)}</span></div>
                 <div className="flex justify-between text-char/60"><span>Metode</span><span>{receipt.method}</span></div>
               </div>
@@ -1147,6 +1156,7 @@ export default function Pos() {
               <div className="th-row"><span>Subtotal</span><span>{formatRp(printJob.data.subtotal)}</span></div>
               <div className="th-row"><span>Pajak</span><span>{formatRp(printJob.data.tax)}</span></div>
               <div className="th-row"><span>Service</span><span>{formatRp(printJob.data.service)}</span></div>
+              {printJob.data.rounding > 0 && <div className="th-row"><span>Pembulatan</span><span>{formatRp(printJob.data.rounding)}</span></div>}
               <div className="th-row th-total"><span>TOTAL</span><span>{formatRp(printJob.data.total)}</span></div>
               <div className="th-row th-small"><span>Metode</span><span>{printJob.data.method}</span></div>
               <div className="th-cut"></div>

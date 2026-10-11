@@ -15,6 +15,7 @@ router.get('/', async (req, res, next) => {
     for (const r of rows) obj[r.key] = r.value;
     if (obj.tax_rate != null) obj.tax_rate = Number(obj.tax_rate);
     if (obj.service_rate != null) obj.service_rate = Number(obj.service_rate);
+    if (obj.rounding_step != null) obj.rounding_step = Number(obj.rounding_step);
     // Owner boleh melihat nilai secret; role lain hanya tahu sudah terisi/belum.
     if (req.user?.role !== 'owner') {
       for (const k of SECRET_KEYS) {

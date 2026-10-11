@@ -21,6 +21,7 @@ import ArusKas from './pages/admin/keuangan/ArusKas.jsx'
 import BukuBesar from './pages/admin/keuangan/BukuBesar.jsx'
 import Jurnal from './pages/admin/keuangan/Jurnal.jsx'
 import Karyawan from './pages/admin/Karyawan.jsx'
+import Cabang from './pages/admin/Cabang.jsx'
 import Gaji from './pages/admin/Gaji.jsx'
 import './index.css'
 
@@ -44,6 +45,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="menu" element={<Menu />} />
           <Route path="absensi" element={<Absensi />} />
           <Route path="stock" element={<Stock />} />
+          <Route path="cabang" element={<Cabang />} />
           <Route path="pembayaran" element={<Pembayaran />} />
           <Route path="keuangan" element={<KeuanganLayout />}>
             <Route index element={<Keuangan />} />

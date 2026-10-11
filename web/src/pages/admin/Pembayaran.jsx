@@ -38,6 +38,16 @@ export default function Pembayaran() {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
+  // Biaya & pembulatan disimpan sebagai pecahan (5% -> 0.05) dan langkah pembulatan (Rp).
+  const pct = (key) => (form[key] === undefined || form[key] === null || form[key] === '' ? '' : String(Number((Number(form[key]) * 100).toFixed(3))))
+  const setPct = (key, value) => set(key, value === '' ? '' : String(Number(value) / 100))
+  const feeSample = 20000
+  const sTax = Math.round(feeSample * (Number(form.tax_rate) || 0))
+  const sService = Math.round(feeSample * (Number(form.service_rate) || 0))
+  const sRaw = feeSample + sTax + sService
+  const sStep = Number(form.rounding_step) || 0
+  const sTotal = sStep > 0 ? Math.ceil(sRaw / sStep) * sStep : sRaw
+
   const uploadQris = async (file) => {
     if (!file) return
     setUploading(true)
@@ -65,7 +75,7 @@ export default function Pembayaran() {
     setError('')
     try {
       const payload = {}
-      for (const k of ['qris_static_image', 'qris_static_merchant', 'payment_gateway', 'gateway_mode', 'gateway_merchant_id', 'gateway_api_key', 'gateway_private_key', 'gateway_callback_url']) {
+      for (const k of ['tax_rate', 'service_rate', 'rounding_step', 'qris_static_image', 'qris_static_merchant', 'payment_gateway', 'gateway_mode', 'gateway_merchant_id', 'gateway_api_key', 'gateway_private_key', 'gateway_callback_url']) {
         if (form[k] !== undefined && form[k] !== null) payload[k] = form[k]
       }
       await api.patch('/settings', payload)
@@ -82,6 +92,52 @@ export default function Pembayaran() {
   return (
     <main className="flex-1 overflow-y-auto p-5 md:p-6">
       <div className="max-w-2xl space-y-6">
+        {/* BIAYA LAYANAN & PEMBULATAN */}
+        <section className="bg-white rounded-2xl border border-black/10 p-6">
+          <h2 className="font-bold">Biaya Layanan &amp; Pembulatan</h2>
+          <p className="text-xs text-char/50 mt-1 mb-4">
+            Biaya layanan (service charge) dan pajak dihitung sebagai persen dari total pembelian (subtotal), berlaku di POS maupun pesanan online.
+          </p>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-bold text-char/60 mb-1.5">Biaya Layanan (%)</label>
+              <input
+                type="number" min="0" max="100" step="0.1"
+                value={pct('service_rate')}
+                onChange={(e) => setPct('service_rate', e.target.value)}
+                placeholder="mis. 5"
+                className="w-full border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-char/60 mb-1.5">Pajak (%)</label>
+              <input
+                type="number" min="0" max="100" step="0.1"
+                value={pct('tax_rate')}
+                onChange={(e) => setPct('tax_rate', e.target.value)}
+                placeholder="mis. 10"
+                className="w-full border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30"
+              />
+            </div>
+          </div>
+          <label className="flex items-start gap-3 bg-cream/70 rounded-xl px-4 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sStep > 0}
+              onChange={(e) => set('rounding_step', e.target.checked ? '1000' : '0')}
+              className="mt-0.5 w-4 h-4 accent-chili"
+            />
+            <span className="text-sm">
+              <span className="font-bold">Bulatkan total ke atas per Rp1.000</span>
+              <span className="block text-xs text-char/50 mt-0.5">Contoh: total Rp4.200 menjadi Rp5.000. Selisihnya tampil sebagai baris &ldquo;Pembulatan&rdquo; di struk dan tercatat sebagai pendapatan.</span>
+            </span>
+          </label>
+          <p className="text-xs text-char/50 mt-3">
+            Simulasi pembelian {formatRp(feeSample)}: layanan {formatRp(sService)} + pajak {formatRp(sTax)}
+            {sTotal > sRaw ? ` + pembulatan ${formatRp(sTotal - sRaw)}` : ''} = <strong className="text-char">{formatRp(sTotal)}</strong>
+          </p>
+        </section>
+
         {/* QRIS STATIS */}
         <section className="bg-white rounded-2xl border border-black/10 p-6">
           <h2 className="font-bold">QRIS Statis</h2>
@@ -173,7 +229,7 @@ export default function Pembayaran() {
           disabled={saving || uploading}
           className="w-full bg-chili hover:bg-chili-dark disabled:opacity-40 text-white font-bold py-3.5 rounded-full"
         >
-          {saving ? 'Menyimpan...' : 'Simpan Pengaturan Pembayaran'}
+          {saving ? 'Menyimpan...' : 'Simpan Pengaturan'}
         </button>
         <p className="text-[11px] text-char/40 text-center">API key tersimpan di database dan hanya tampil penuh untuk Super Admin.</p>
       </div>
