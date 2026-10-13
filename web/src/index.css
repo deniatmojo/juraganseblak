@@ -203,6 +203,142 @@ button:focus-visible {
   }
 }
 
+/* ===== Cetak QR meja (A5) =====
+   #qrPrintArea di-portal ke <body>; hanya tampil saat body.print-qr (diset
+   sebelum window.print()). Ukuran kertas A5 diinjeksi sebagai <style> @page
+   saat cetak agar tidak bentrok dengan @page 58mm milik struk termal. */
+#qrPrintArea { display: none; }
+
+@media print {
+  body.print-qr #root { display: none !important; }
+  body.print-qr #qrPrintArea { display: block; }
+  body.print-qr #qrPrintArea,
+  body.print-qr #qrPrintArea * { visibility: visible; }
+  body.print-qr { margin: 0; background: #fff; }
+
+  #qrPrintArea * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #qrPrintArea .qr-page {
+    position: relative;
+    width: 148mm;
+    height: 209mm; /* 1mm cadangan agar tidak meluber ke halaman kosong */
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+    background: #FAF3EC;
+    color: #16110F;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #qrPrintArea .qr-page:last-child { break-after: auto; page-break-after: auto; }
+
+  #qrPrintArea .qr-band {
+    position: relative;
+    width: 100%;
+    height: 78mm;
+    background: linear-gradient(160deg, #E63A3A 0%, #C81E1E 55%, #9A1515 100%);
+    border-radius: 0 0 50% 50% / 0 0 13mm 13mm;
+    text-align: center;
+    color: #fff;
+    overflow: hidden;
+  }
+  #qrPrintArea .qr-dot { position: absolute; border-radius: 50%; background: rgba(249, 115, 22, 0.35); }
+  #qrPrintArea .qr-dot-a { width: 46mm; height: 46mm; left: -16mm; top: -18mm; }
+  #qrPrintArea .qr-dot-b { width: 34mm; height: 34mm; right: -10mm; bottom: 6mm; background: rgba(255, 255, 255, 0.10); }
+  #qrPrintArea .qr-logo {
+    position: relative;
+    display: block;
+    width: 38mm;
+    height: 38mm;
+    margin: 8mm auto 0;
+    border-radius: 50%;
+    border: 1.6mm solid #fff;
+    object-fit: cover;
+  }
+  #qrPrintArea .qr-brand {
+    position: relative;
+    margin: 4mm 0 0;
+    font-family: 'Anton', sans-serif;
+    font-size: 27pt;
+    letter-spacing: 0.06em;
+    line-height: 1;
+  }
+  #qrPrintArea .qr-tag {
+    position: relative;
+    margin: 2mm 0 0;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #FDBA74;
+  }
+
+  #qrPrintArea .qr-card {
+    width: 104mm;
+    margin-top: -8mm;
+    padding: 5mm 6mm 5mm;
+    background: #fff;
+    border: 1.2mm solid #F97316;
+    border-radius: 7mm;
+    text-align: center;
+    position: relative;
+  }
+  #qrPrintArea .qr-scan {
+    margin: 0 0 3mm;
+    font-family: 'Anton', sans-serif;
+    font-size: 15pt;
+    letter-spacing: 0.05em;
+    color: #C81E1E;
+  }
+  #qrPrintArea .qr-frame {
+    width: 64mm;
+    height: 64mm;
+    margin: 0 auto;
+    padding: 2mm;
+    border: 0.5mm dashed #16110F;
+    border-radius: 3mm;
+  }
+  #qrPrintArea .qr-frame img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  #qrPrintArea .qr-table {
+    display: inline-block;
+    margin: 4mm 0 0;
+    padding: 1.6mm 8mm 1.2mm;
+    background: #16110F;
+    color: #fff;
+    border-radius: 99mm;
+    font-family: 'Anton', sans-serif;
+    font-size: 21pt;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+    text-transform: uppercase;
+  }
+  #qrPrintArea .qr-branch { margin: 1.8mm 0 0; font-size: 8pt; font-weight: 700; color: #6b5b53; }
+
+  #qrPrintArea .qr-steps {
+    list-style: none;
+    margin: 6mm 0 0;
+    padding: 0 8mm;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    gap: 3mm;
+  }
+  #qrPrintArea .qr-steps li { flex: 1; display: flex; align-items: center; gap: 2mm; font-size: 7.5pt; line-height: 1.25; }
+  #qrPrintArea .qr-steps b {
+    flex: none;
+    width: 7mm;
+    height: 7mm;
+    border-radius: 50%;
+    background: #F97316;
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-family: 'Anton', sans-serif;
+    font-size: 10pt;
+  }
+  #qrPrintArea .qr-foot { margin: auto 0 5mm; font-size: 6.5pt; font-weight: 700; color: #6b5b53; letter-spacing: 0.03em; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

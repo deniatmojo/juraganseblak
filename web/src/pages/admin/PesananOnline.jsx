@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { api } from '../../api'
+import QrPrintSheet from './QrPrintSheet'
 
 const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
 
@@ -95,7 +96,7 @@ function OrderCard({ order, onAcc, onCancel, onProgress, busy }) {
 }
 
 // Kartu QR satu meja (tampilan layar admin).
-function TableQrCard({ table, qrUrl, busy, showBranch, onRename, onToggle, onDelete }) {
+function TableQrCard({ table, qrUrl, busy, showBranch, onPrint, onRename, onToggle, onDelete }) {
   return (
     <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-5 flex flex-col items-center gap-3 text-center ${!table.is_active ? 'opacity-50' : ''}`}>
       {qrUrl && <img src={qrUrl} alt={`QR Meja ${table.label}`} className="w-36 h-36" />}
@@ -105,30 +106,10 @@ function TableQrCard({ table, qrUrl, busy, showBranch, onRename, onToggle, onDel
         {!table.is_active && <p className="text-xs text-chili font-bold mt-0.5">Nonaktif — QR tidak bisa dipakai</p>}
       </div>
       <div className="flex flex-wrap gap-2 justify-center">
+        {table.is_active && <button onClick={() => onPrint(table)} className="text-xs font-bold bg-char text-white rounded-lg px-3 py-1.5 hover:bg-char-soft transition-colors">🖨️ Cetak</button>}
         <button onClick={() => onRename(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">Ganti Nama</button>
         <button onClick={() => onToggle(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">{table.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
         <button onClick={() => onDelete(table)} disabled={busy} className="text-xs font-bold border border-black/10 rounded-lg px-3 py-1.5 hover:border-chili hover:text-chili transition-colors">Hapus</button>
-      </div>
-    </div>
-  )
-}
-
-// Lembar cetak: semua QR meja aktif, satu kartu per meja siap potong-tempel.
-function TableQrPrintSheet({ tables, qrUrls }) {
-  return (
-    <div className="hidden print:block">
-      <h1 className="font-display text-3xl text-center uppercase mb-1">Juragan Seblak</h1>
-      <p className="text-center text-sm mb-6">Scan QR di bawah untuk memesan dari meja</p>
-      <div className="grid grid-cols-2 gap-8">
-        {tables.filter((t) => t.is_active).map((t) => (
-          <div key={t.id} className="break-inside-avoid border-2 border-black rounded-2xl p-6 text-center">
-            <p className="font-display text-2xl uppercase mb-3">🪑 Meja {t.label}</p>
-            {qrUrls[t.id] && <img src={qrUrls[t.id]} alt={`QR Meja ${t.label}`} className="w-48 h-48 mx-auto" />}
-            <p className="text-xs mt-3">1. Scan QR dengan kamera HP</p>
-            <p className="text-xs">2. Pilih menu & kirim pesanan</p>
-            <p className="text-xs">3. Bayar di meja — pesanan diantar ke meja {t.label}</p>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -148,6 +129,34 @@ function QrMejaView() {
   const [busy, setBusy] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [error, setError] = useState('')
+  const [printList, setPrintList] = useState(null) // daftar meja yang sedang dicetak (A5)
+
+  // Cetak: render lembar A5, tunggu gambar (logo & QR) siap, set kertas A5 +
+  // mode cetak QR di <body>, lalu window.print(). Dibersihkan setelah dialog tutup.
+  useEffect(() => {
+    if (!printList) return undefined
+    let cancelled = false
+    const style = document.createElement('style')
+    style.textContent = '@page { size: A5 portrait; margin: 0; }'
+    const cleanup = () => {
+      document.body.classList.remove('print-qr')
+      style.remove()
+      window.removeEventListener('afterprint', onAfter)
+    }
+    const onAfter = () => { cleanup(); setPrintList(null) }
+    ;(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r()))
+      const imgs = [...document.querySelectorAll('#qrPrintArea img')]
+      await Promise.all(imgs.map((i) => (i.decode ? i.decode().catch(() => {}) : Promise.resolve())))
+      if (document.fonts?.ready) await document.fonts.ready
+      if (cancelled) return
+      document.head.appendChild(style)
+      document.body.classList.add('print-qr')
+      window.addEventListener('afterprint', onAfter)
+      window.print()
+    })()
+    return () => { cancelled = true; cleanup() }
+  }, [printList])
 
   const load = useCallback(() => {
     return api.get('/online/tables')
@@ -165,7 +174,7 @@ function QrMejaView() {
     const base = window.location.origin
     Promise.all(tables.map(async (t) => {
       const url = `${base}/order?meja=${t.id}`
-      const dataUrl = await QRCode.toDataURL(url, { width: 300, margin: 1 })
+      const dataUrl = await QRCode.toDataURL(url, { width: 640, margin: 0, errorCorrectionLevel: 'M' })
       return [t.id, dataUrl]
     }))
       .then((pairs) => { if (!cancelled) setQrUrls(Object.fromEntries(pairs)) })
@@ -214,11 +223,11 @@ function QrMejaView() {
           Pelayan melihat nomor meja di daftar pesanan.
         </p>
         <button
-          onClick={() => window.print()}
-          disabled={loading || tables.filter((t) => t.is_active).length === 0}
+          onClick={() => setPrintList(tables.filter((t) => t.is_active))}
+          disabled={loading || tables.filter((t) => t.is_active).length === 0 || Object.keys(qrUrls).length === 0}
           className="bg-char hover:bg-char-soft text-white font-bold text-sm py-2.5 px-5 rounded-xl transition-colors disabled:opacity-50"
         >
-          🖨️ Cetak Semua QR
+          🖨️ Cetak Semua QR (A5)
         </button>
       </div>
 
@@ -244,12 +253,12 @@ function QrMejaView() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 print:hidden">
           {tables.map((t) => (
-            <TableQrCard key={t.id} table={t} qrUrl={qrUrls[t.id]} busy={busy} showBranch={branch === 'all'} onRename={rename} onToggle={toggle} onDelete={remove} />
+            <TableQrCard key={t.id} table={t} qrUrl={qrUrls[t.id]} busy={busy} showBranch={branch === 'all'} onPrint={(tb) => setPrintList([tb])} onRename={rename} onToggle={toggle} onDelete={remove} />
           ))}
         </div>
       )}
 
-      <TableQrPrintSheet tables={tables} qrUrls={qrUrls} />
+      {printList && <QrPrintSheet tables={printList} qrUrls={qrUrls} />}
     </div>
   )
 }
