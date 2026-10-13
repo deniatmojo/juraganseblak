@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
 import { nextOrderNo, parseOrderItems } from './orders.js';
-import { resolveBranch, mainBranchId } from '../branch.js';
+import { resolveBranch, mainBranchId, branchIsOpen } from '../branch.js';
 import { computeTotals } from '../pricing.js';
 
 // Router pesanan online (publik — dipasang SEBELUM guard auth global di
@@ -46,8 +46,12 @@ router.get('/store', async (_req, res, next) => {
 // pesanan delivery/pickup/reservasi di halaman /order.
 router.get('/branches', async (_req, res, next) => {
   try {
-    const [rows] = await pool.query('SELECT id, name, address FROM branches WHERE is_active = 1 ORDER BY id');
-    res.json(rows);
+    const [rows] = await pool.query(
+      `SELECT b.id, b.name, b.address,
+              EXISTS (SELECT 1 FROM shifts s WHERE s.branch_id = b.id AND s.closed_at IS NULL) AS is_open
+       FROM branches b WHERE b.is_active = 1 ORDER BY b.id`
+    );
+    res.json(rows.map((r) => ({ ...r, is_open: Boolean(r.is_open) })));
   } catch (e) { next(e); }
 });
 
@@ -86,7 +90,7 @@ router.get('/tables/:id', async (req, res, next) => {
       { id: Number(req.params.id) }
     );
     if (!row || !row.is_active) return res.status(404).json({ error: 'Meja tidak ditemukan' });
-    res.json(row);
+    res.json({ ...row, is_open: await branchIsOpen(row.branch_id ?? await mainBranchId()) });
   } catch (e) { next(e); }
 });
 
@@ -189,6 +193,9 @@ router.post('/orders', async (req, res, next) => {
       if (wanted && active.some((b) => b.id === wanted)) branchId = wanted;
       else if (active.length === 1) branchId = active[0].id;
       else return res.status(400).json({ error: 'Pilih cabang tujuan pesanan' });
+    }
+    if (!(await branchIsOpen(branchId, conn))) {
+      return res.status(409).json({ error: 'Maaf, cabang ini sedang tutup dan belum menerima pesanan. Silakan coba lagi saat buka.', code: 'BRANCH_CLOSED' });
     }
     const effectiveType = table ? 'dinein' : order_type;
     if (!['dinein', 'delivery', 'pickup'].includes(effectiveType)) {

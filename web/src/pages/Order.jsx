@@ -148,10 +148,18 @@ export default function Order() {
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
+  // Cabang tujuan sedang tutup (belum ada shift terbuka) → pesanan tidak diterima.
+  const chosenBranch = branches.find((b) => String(b.id) === branchId)
+  const closedNow = tableMode ? table?.is_open === false : chosenBranch ? chosenBranch.is_open === false : false
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (portions.length === 0 && cartItems.length === 0) {
       setError('Racik minimal satu porsi seblak dulu ya')
+      return
+    }
+    if (closedNow) {
+      setError('Maaf, cabang ini sedang tutup dan belum menerima pesanan.')
       return
     }
     if (!tableMode && branches.length > 1 && !branchId) {
@@ -476,7 +484,7 @@ export default function Order() {
                       <label htmlFor="cabang" className="block text-sm font-bold mb-1.5">Cabang</label>
                       <select id="cabang" required value={branchId} onChange={(e) => setBranchId(e.target.value)} className={inputCls}>
                         <option value="">Pilih cabang…</option>
-                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}{b.address ? ` — ${b.address}` : ''}</option>)}
+                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}{b.is_open ? '' : ' (TUTUP)'}{b.address ? ` — ${b.address}` : ''}</option>)}
                       </select>
                     </div>
                   )}
@@ -522,12 +530,19 @@ export default function Order() {
                     <textarea id="catatan" name="catatan" rows="2" placeholder="Contoh: kurangi level pedas untuk 1 pax" value={form.catatan} onChange={handleChange} className={`${inputCls} resize-none`}></textarea>
                   </div>
 
+                  {closedNow && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold">
+                      🔒 {tableMode ? (table?.branch_name || 'Cabang ini') : chosenBranch?.name} sedang <strong>TUTUP</strong> — belum menerima pesanan.
+                      {tableMode ? ' Silakan panggil pelayan.' : ' Coba lagi saat buka, atau pilih cabang lain yang sedang buka.'}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || closedNow}
                     className="w-full bg-chili hover:bg-chili-dark disabled:opacity-60 text-white font-bold py-4 rounded-full transition-colors text-sm md:text-base"
                   >
-                    {submitting ? 'Memproses…' : tableMode ? 'Kirim Pesanan ke Dapur' : 'Buat Pesanan & Bayar via QRIS'}
+                    {closedNow ? 'Cabang sedang tutup' : submitting ? 'Memproses…' : tableMode ? 'Kirim Pesanan ke Dapur' : 'Buat Pesanan & Bayar via QRIS'}
                   </button>
 
                   <p className="text-center text-xs text-char/40">

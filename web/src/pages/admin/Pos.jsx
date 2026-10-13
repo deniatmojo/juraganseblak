@@ -520,10 +520,10 @@ export default function Pos() {
             </>
           ) : (
             <>
-              <span className="text-xs font-bold text-char/60">
+              <span className="text-xs font-bold text-chili">
                 {needsPick
                   ? 'Pilih satu cabang di header (bukan "Semua cabang") untuk membuka shift & bertransaksi.'
-                  : `Belum ada shift aktif${headerBranchName ? ` di ${headerBranchName}` : ''} — checkout tetap bisa, tapi tidak tercatat di rekap kas.`}
+                  : `🔒 ${headerBranchName ? `${headerBranchName} ` : 'Cabang '}TUTUP — belum bisa menerima pesanan (POS maupun online). Klik Mulai Shift untuk membuka.`}
               </span>
               <button onClick={openQueue} className="ml-auto text-xs font-bold text-char border border-black/15 hover:border-char px-4 py-2 rounded-full shrink-0">Antrian Pesanan</button>
               <button onClick={() => setShiftModal('open')} disabled={needsPick} className="text-xs font-bold text-white bg-chili hover:bg-chili-dark disabled:opacity-40 px-4 py-2 rounded-full shrink-0">Mulai Shift</button>
@@ -688,10 +688,10 @@ export default function Pos() {
 
           <button
             onClick={startCheckout}
-            disabled={cart.length === 0 || submitting}
+            disabled={cart.length === 0 || submitting || !shift}
             className="w-full bg-chili hover:bg-chili-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-4 rounded-full transition-colors"
           >
-            {submitting ? 'Menyimpan...' : 'Bayar & Cetak Resi'}
+            {submitting ? 'Menyimpan...' : !shift ? 'Buka shift dulu untuk menerima pesanan' : 'Bayar & Cetak Resi'}
           </button>
         </div>
       </section>

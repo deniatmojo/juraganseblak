@@ -139,6 +139,11 @@ router.post('/', async (req, res, next) => {
       'SELECT id, branch_id FROM shifts WHERE user_id = :u AND branch_id = :b AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
       { u: req.user?.id ?? 0, b: branchId }
     );
+    // Kasir hanya bisa menerima pesanan bila shift di cabang ini sudah dibuka.
+    if (!openShift) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Shift belum dibuka di cabang ini. Buka shift dulu untuk menerima pesanan.', code: 'SHIFT_CLOSED' });
+    }
 
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, table_no, subtotal,

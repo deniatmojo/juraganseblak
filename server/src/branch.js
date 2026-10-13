@@ -60,6 +60,16 @@ export async function resolveBranch(req, { allowAll = false, conn = pool } = {})
   return id;
 }
 
+// Cabang "buka" = ada minimal satu shift terbuka di cabang itu (oleh siapa pun).
+// Dipakai pesanan online: cabang tanpa shift terbuka tidak menerima pesanan.
+export async function branchIsOpen(branchId, conn = pool) {
+  if (!branchId) return false;
+  const [[row]] = await conn.query(
+    'SELECT 1 AS open_now FROM shifts WHERE branch_id = :b AND closed_at IS NULL LIMIT 1', { b: branchId }
+  );
+  return !!row;
+}
+
 // Tambah kondisi `col = :branch` bila cabang tertentu dipilih (null = semua).
 export function branchCond(col, branchId, params) {
   if (branchId == null) return '';
