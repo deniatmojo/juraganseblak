@@ -6,8 +6,37 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Klien API — padanan web/src/api.js. Base URL menunjuk ke server produksi
 /// (Express di port 3002, diproxy /api oleh web server).
 class ApiClient {
-  static const baseUrl = 'https://template-one.airadynamics.com/api';
+  static const baseUrl = 'https://juragan-seblak.airadynamics.com/api';
   static const _tokenKey = 'erp_token';
+
+  /// Endpoint yang mengikuti cabang aktif (sama dengan BRANCH_PATHS di web).
+  static const _branchPaths = [
+    '/stock', '/orders', '/shifts', '/transactions', '/finance', '/online/tables',
+  ];
+
+  /// Diisi di main(): nilai cabang aktif (id / 'all') atau null bila tidak
+  /// perlu disuntik (kasir, akun terkunci cabang).
+  String? Function()? branchProvider;
+
+  bool _followsBranch(String path) => _branchPaths.any(
+      (p) => path == p || path.startsWith('$p/') || path.startsWith('$p?'));
+
+  /// Suntik branch_id otomatis (query pada GET, field body pada POST/PATCH)
+  /// bila halaman belum menentukannya sendiri — padanan withBranch() web.
+  (String, Object?) _withBranch(String path, String method, Object? body) {
+    final branch = branchProvider?.call();
+    if (branch == null || branch.isEmpty || !_followsBranch(path)) {
+      return (path, body);
+    }
+    if (method == 'GET') {
+      if (RegExp(r'[?&]branch_id=').hasMatch(path)) return (path, body);
+      return ('$path${path.contains('?') ? '&' : '?'}branch_id=$branch', body);
+    }
+    if (body is Map && !body.containsKey('branch_id')) {
+      return (path, {...body, 'branch_id': int.tryParse(branch) ?? branch});
+    }
+    return (path, body);
+  }
 
   String? _token;
   String? get token => _token;
@@ -33,8 +62,10 @@ class ApiClient {
   /// Dipanggil saat sesi 401 — supaya shell mengembalikan user ke login.
   void Function()? onUnauthorized;
 
-  Future<dynamic> request(String path,
+  Future<dynamic> request(String rawPath,
       {String method = 'GET', Object? body}) async {
+    final (path, sentBody) = _withBranch(rawPath, method, body);
+    body = sentBody;
     late http.Response res;
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{

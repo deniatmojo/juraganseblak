@@ -26,6 +26,30 @@ class _PembayaranPageState extends State<PembayaranPage> {
   String? msg;
   String? error;
 
+  // Biaya layanan & pajak (persen) + pembulatan total — disimpan sebagai
+  // pecahan (5% -> 0.05) dan langkah pembulatan (Rp). Padanan kartu "Biaya
+  // Layanan & Pembulatan" di web Pembayaran.jsx.
+  final serviceCtrl = TextEditingController();
+  final taxCtrl = TextEditingController();
+
+  static String _pctText(dynamic rate) {
+    final n = num.tryParse('$rate');
+    if (n == null) return '';
+    return (n * 100).toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  static String _fracText(String pct) {
+    final n = num.tryParse(pct.replaceAll(',', '.'));
+    return n == null ? '' : '${n / 100}';
+  }
+
+  @override
+  void dispose() {
+    serviceCtrl.dispose();
+    taxCtrl.dispose();
+    super.dispose();
+  }
+
   static const gateways = {
     'none': 'Belum pakai gateway (QRIS statis saja)',
     'tripay': 'Tripay — QRIS dinamis',
@@ -54,6 +78,8 @@ class _PembayaranPageState extends State<PembayaranPage> {
       final s = await api.get('/settings');
       if (mounted) {
         setState(() => form = Map<String, dynamic>.from(s as Map));
+        serviceCtrl.text = _pctText(form['service_rate']);
+        taxCtrl.text = _pctText(form['tax_rate']);
       }
     } catch (e) {
       if (mounted) {
@@ -100,7 +126,14 @@ class _PembayaranPageState extends State<PembayaranPage> {
     try {
       // Nilai ter-mask ('********') dari server tidak dikirim ulang supaya
       // tidak menimpa secret yang tersimpan (padanan catatan settings.js).
-      final body = <String, dynamic>{};
+      final body = <String, dynamic>{
+        'service_rate': _fracText(serviceCtrl.text),
+        'tax_rate': _fracText(taxCtrl.text),
+        'rounding_step': (num.tryParse('${form['rounding_step']}') ?? 0) > 0
+            ? '1000'
+            : '0',
+      };
+      body.removeWhere((k, v) => v == '');
       for (final k in [
         'qris_static_image',
         'qris_static_merchant',
@@ -129,6 +162,72 @@ class _PembayaranPageState extends State<PembayaranPage> {
     }
   }
 
+  Widget _feeCard() {
+    const sample = 20000;
+    final svc = sample * (num.tryParse(_fracText(serviceCtrl.text)) ?? 0);
+    final tax = sample * (num.tryParse(_fracText(taxCtrl.text)) ?? 0);
+    final sService = svc.round();
+    final sTax = tax.round();
+    final raw = sample + sService + sTax;
+    final step = (num.tryParse('${form['rounding_step']}') ?? 0).toInt();
+    final total = step > 0 ? ((raw + step - 1) ~/ step) * step : raw;
+    return SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Biaya Layanan & Pembulatan', style: AppText.display(size: 18)),
+          const SizedBox(height: 6),
+          Text(
+            'Biaya layanan (service charge) dan pajak dihitung sebagai persen dari total pembelian (subtotal), berlaku di POS maupun pesanan online.',
+            style: AppText.body(size: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: serviceCtrl,
+                onChanged: (_) => setState(() {}),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                    labelText: 'Biaya Layanan (%)', hintText: 'mis. 5'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: taxCtrl,
+                onChanged: (_) => setState(() {}),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                    labelText: 'Pajak (%)', hintText: 'mis. 10'),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            activeThumbColor: AppColors.chili,
+            value: step > 0,
+            onChanged: (v) =>
+                setState(() => form['rounding_step'] = v ? '1000' : '0'),
+            title: Text('Bulatkan total ke atas per Rp1.000',
+                style: AppText.body(size: 13, weight: FontWeight.w700)),
+            subtitle: Text(
+                'Contoh: total Rp4.200 menjadi Rp5.000. Selisihnya tampil sebagai baris "Pembulatan" di struk dan tercatat sebagai pendapatan.',
+                style: AppText.body(size: 11, color: Colors.black45)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Simulasi pembelian ${formatRp(sample)}: layanan ${formatRp(sService)} + pajak ${formatRp(sTax)}${total > raw ? ' + pembulatan ${formatRp(total - raw)}' : ''} = ${formatRp(total)}',
+            style: AppText.body(size: 11, weight: FontWeight.w700, color: AppColors.ember),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -146,6 +245,8 @@ class _PembayaranPageState extends State<PembayaranPage> {
         children: [
           if (error != null) _banner(error!, AppColors.chili, AppColors.redBg),
           if (msg != null) _banner(msg!, AppColors.greenOk, AppColors.greenBg),
+          _feeCard(),
+          const SizedBox(height: 16),
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,7 +362,7 @@ class _PembayaranPageState extends State<PembayaranPage> {
                   _field('gateway_private_key', 'Private Key (Tripay & Duitku)',
                       secret: form['has_gateway_private_key'] == true),
                   _field('gateway_callback_url',
-                      'URL Publik Server (mis. https://template-one.airadynamics.com)'),
+                      'URL Publik Server (mis. https://juragan-seblak.airadynamics.com)'),
                   // Info webhook (web Pembayaran.jsx:159-163)
                   Container(
                     width: double.infinity,
@@ -277,7 +378,7 @@ class _PembayaranPageState extends State<PembayaranPage> {
                 ],
                 const SizedBox(height: 18),
                 primaryButton(
-                  saving ? 'Menyimpan...' : 'Simpan Pengaturan Pembayaran',
+                  saving ? 'Menyimpan...' : 'Simpan Pengaturan',
                   onPressed: saving || uploading ? null : _save,
                 ),
                 const SizedBox(height: 8),

@@ -2,6 +2,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../auth_service.dart';
+import '../branch_service.dart';
+
 /// Generator PDF laporan — padanan web/src/financePdf.js (jsPDF):
 /// banner gelap "JURAGAN SEBLAK", judul ember di kanan, blok heading
 /// berlatar cream, item menjorok, total menonjol, minus merah.
@@ -39,6 +42,13 @@ String _ddmmyyyy(String iso) {
   return p.length == 3 ? '${p[2]}/${p[1]}/${p[0]}' : iso;
 }
 
+/// Cabang laporan: cabang aktif di header (owner/admin) atau "Semua cabang".
+String _branchLabel() {
+  final u = authService.user;
+  final id = branchService.effectiveId(u);
+  return id == null ? 'Semua cabang' : branchService.nameOf(id);
+}
+
 pw.Widget _banner(String title, String from, String to) {
   return pw.Container(
     color: const PdfColor.fromInt(0x16110F),
@@ -59,7 +69,7 @@ pw.Widget _banner(String title, String from, String to) {
                     fontWeight: pw.FontWeight.bold,
                     color: const PdfColor.fromInt(0xFAF3EC))),
             pw.SizedBox(height: 2),
-            pw.Text('Laporan Keuangan',
+            pw.Text('Laporan Keuangan · ${_branchLabel()}',
                 style: pw.TextStyle(
                     fontSize: 8, color: const PdfColor.fromInt(0xFAF3EC))),
           ],

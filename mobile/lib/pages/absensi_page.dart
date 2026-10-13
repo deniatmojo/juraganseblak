@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../branch_service.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -505,7 +506,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
             // ---- Lokasi Absen per Cabang (owner) ----
             if (isOwner) ...[
               const SizedBox(height: 20),
-              _CabangManagerSection(
+              CabangManagerSection(
                 onError: (msg) => setState(() => error = msg),
               ),
             ],
@@ -1084,16 +1085,16 @@ Map<String, String>? parseMapsUrl(String text) {
   return null;
 }
 
-class _CabangManagerSection extends StatefulWidget {
+class CabangManagerSection extends StatefulWidget {
   final void Function(String) onError;
 
-  const _CabangManagerSection({required this.onError});
+  const CabangManagerSection({super.key, required this.onError});
 
   @override
-  State<_CabangManagerSection> createState() => _CabangManagerSectionState();
+  State<CabangManagerSection> createState() => CabangManagerSectionState();
 }
 
-class _CabangManagerSectionState extends State<_CabangManagerSection> {
+class CabangManagerSectionState extends State<CabangManagerSection> {
   List<Map<String, dynamic>> list = [];
   Map<String, dynamic>? editing; // cabang yang sedang diedit
 
@@ -1106,6 +1107,7 @@ class _CabangManagerSectionState extends State<_CabangManagerSection> {
   Future<void> _load() async {
     try {
       final data = await api.get('/branches');
+      branchService.reload(); // pemilih cabang di header ikut diperbarui
       if (mounted) {
         setState(() => list = (data as List)
             .map((r) => Map<String, dynamic>.from(r as Map))

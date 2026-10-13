@@ -70,6 +70,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
     final email = TextEditingController();
     final pass = TextEditingController();
     String role = 'kasir';
+    int? branchId; // admin: dikunci ke cabang ini; kasir: cabang bawaan
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => StatefulBuilder(
@@ -109,6 +110,25 @@ class _KaryawanPageState extends State<KaryawanPage> {
               ],
               onChanged: (v) => setD(() => role = v ?? role),
             ),
+            if (role == 'admin' || role == 'kasir') ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int?>(
+                initialValue: branchId,
+                decoration: const InputDecoration(labelText: 'Cabang'),
+                items: [
+                  DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text(role == 'admin'
+                          ? 'Semua cabang (tidak dikunci)'
+                          : 'Pilih saat buka shift')),
+                  for (final b in branches)
+                    DropdownMenuItem<int?>(
+                        value: b['id'] is int ? b['id'] as int : int.tryParse('${b['id']}'),
+                        child: Text('${b['name']}')),
+                ],
+                onChanged: (v) => setD(() => branchId = v),
+              ),
+            ],
           ]),
           actions: [
             TextButton(
@@ -131,8 +151,56 @@ class _KaryawanPageState extends State<KaryawanPage> {
         'email': email.text.trim(),
         'password': pass.text,
         'role': role,
+        if ((role == 'admin' || role == 'kasir') && branchId != null)
+          'branch_id': branchId,
       });
       setState(() => success = 'Akun ${name.text.trim()} berhasil dibuat.');
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  /// Ubah cabang akun: admin dikunci ke cabang ini, kasir = cabang bawaan.
+  Future<void> _setUserBranch(Map<String, dynamic> u) async {
+    final isAdmin = u['role'] == 'admin';
+    final current = u['branch_id'] == null
+        ? null
+        : (u['branch_id'] is int ? u['branch_id'] as int : int.tryParse('${u['branch_id']}'));
+    final picked = await showDialog<Object>(
+      context: context,
+      builder: (d) => SimpleDialog(
+        title: Text('Cabang ${u['name']}', style: AppText.display(size: 16)),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(d, 'none'),
+            child: Text(isAdmin ? 'Semua cabang (tidak dikunci)' : 'Pilih saat buka shift',
+                style: AppText.body(
+                    size: 13,
+                    weight: current == null ? FontWeight.w800 : FontWeight.w500)),
+          ),
+          for (final b in branches)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(d, b['id']),
+              child: Text('${b['name']}',
+                  style: AppText.body(
+                      size: 13,
+                      weight: '${b['id']}' == '$current'
+                          ? FontWeight.w800
+                          : FontWeight.w500)),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    try {
+      await api.patch('/users/${u['id']}', {
+        'branch_id': picked == 'none'
+            ? null
+            : (picked is int ? picked : int.tryParse('$picked')),
+      });
       await _load();
     } catch (e) {
       if (mounted) {
@@ -431,7 +499,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                         style: AppText.body(
                             size: 13, weight: FontWeight.w700)),
                     subtitle: Text(
-                        '${roleLabels['${u['role']}'] ?? '${u['role']}'} · ${u['email']}',
+                        '${roleLabels['${u['role']}'] ?? '${u['role']}'} · ${u['email']}${(u['role'] == 'admin' || u['role'] == 'kasir') ? ' · ${u['branch_name'] ?? (u['role'] == 'admin' ? 'Semua cabang' : 'Cabang: pilih saat shift')}' : ''}',
                         style:
                             AppText.body(size: 11, color: Colors.black45)),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -440,6 +508,12 @@ class _KaryawanPageState extends State<KaryawanPage> {
                           : StatusChip('Nonaktif',
                               fg: Colors.black45,
                               bg: Colors.black.withValues(alpha: 0.05)),
+                      if (u['role'] == 'admin' || u['role'] == 'kasir')
+                        IconButton(
+                          tooltip: 'Atur cabang',
+                          icon: const Icon(Icons.storefront_outlined, size: 20),
+                          onPressed: () => _setUserBranch(u),
+                        ),
                       if (u['role'] != 'owner') ...[
                         const SizedBox(width: 4),
                         IconButton(

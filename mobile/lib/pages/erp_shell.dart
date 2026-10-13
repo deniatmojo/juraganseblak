@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../branch_service.dart';
+import '../services/thermal_printer.dart';
 import '../theme.dart';
 import 'dashboard_page.dart';
 import 'pos_page.dart';
@@ -10,6 +12,7 @@ import 'pesanan_online_page.dart';
 import 'menu_page.dart';
 import 'absensi_page.dart';
 import 'stock_page.dart';
+import 'cabang_page.dart';
 import 'pembayaran_page.dart';
 import 'keuangan_page.dart';
 import 'karyawan_page.dart';
@@ -87,8 +90,11 @@ class _ErpShellState extends State<ErpShell> {
           Icons.fact_check_outlined, [], AbsensiPage(user: widget.user)),
       NavEntry('Stock', 'Pantau ketersediaan bahan dapur',
           Icons.inventory_2_outlined, ['owner', 'admin'], StockPage(user: widget.user)),
-      NavEntry('Pembayaran', 'QRIS & payment gateway', Icons.credit_card_outlined,
-          ['owner', 'admin'], PembayaranPage(user: widget.user)),
+      NavEntry('Cabang', 'Kelola cabang & lokasi absen', Icons.storefront_outlined,
+          ['owner'], CabangPage(user: widget.user)),
+      NavEntry('Pembayaran', 'Biaya layanan, pembulatan, QRIS & gateway',
+          Icons.credit_card_outlined, ['owner', 'admin'],
+          PembayaranPage(user: widget.user)),
       NavEntry('Keuangan', 'Pemasukan & pengeluaran outlet',
           Icons.account_balance_wallet_outlined, ['owner'], KeuanganPage(user: widget.user)),
       NavEntry('Karyawan', 'Kelola akun login & data karyawan',
@@ -110,12 +116,21 @@ class _ErpShellState extends State<ErpShell> {
     if (index < 0) index = 0;
     timer = Timer.periodic(const Duration(seconds: 1),
         (_) => setState(() => now = DateTime.now()));
+    // Daftar cabang + pilihan cabang aktif; notifikasi ikut cabang terpilih.
+    branchService.reload();
+    branchService.addListener(_onBranchChanged);
     _loadNotifications();
     notifTimer = Timer.periodic(
         const Duration(seconds: 60), (_) => _loadNotifications());
   }
 
   int _notifTotal() => notifs.fold(0, (s, n) => s + n.count);
+
+  void _onBranchChanged() {
+    if (!mounted) return;
+    _loadNotifications();
+    setState(() {}); // halaman dibangun ulang (key cabang berubah)
+  }
 
   Future<void> _loadNotifications() async {
     final list = await _fetchNotifications();
@@ -354,6 +369,7 @@ class _ErpShellState extends State<ErpShell> {
   void dispose() {
     timer?.cancel();
     notifTimer?.cancel();
+    branchService.removeListener(_onBranchChanged);
     super.dispose();
   }
 
@@ -461,9 +477,59 @@ class _ErpShellState extends State<ErpShell> {
               ),
             ),
           ),
-          Expanded(child: entry.page),
+          _buildBranchBar(),
+          // Key cabang: ganti cabang di header → halaman dibuat ulang & memuat
+          // data cabang baru (padanan <Outlet key={branch}> di AdminLayout web).
+          Expanded(
+            child: KeyedSubtree(
+              key: ValueKey('${entry.title}|${branchService.selected}'),
+              child: entry.page,
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  /// Pemilih cabang (owner & admin tak terkunci) / label cabang (admin terkunci).
+  /// Kasir tidak punya pemilih — cabangnya mengikuti shift yang dibuka di POS.
+  Widget _buildBranchBar() {
+    final u = widget.user;
+    if (!u.isAdmin || branchService.branches.isEmpty) return const SizedBox.shrink();
+    Widget content;
+    if (u.isLockedAdmin) {
+      content = Text(branchService.nameOf(u.branchId),
+          style: AppText.body(
+              size: 12, weight: FontWeight.w700, color: AppColors.chili));
+    } else {
+      content = DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isDense: true,
+          value: branchService.selected.isEmpty ? null : branchService.selected,
+          style: AppText.body(
+              size: 12, weight: FontWeight.w700, color: AppColors.char),
+          items: [
+            const DropdownMenuItem(value: 'all', child: Text('Semua cabang')),
+            for (final b in branchService.branches)
+              DropdownMenuItem(value: '${b.id}', child: Text(b.name)),
+          ],
+          onChanged: (v) {
+            if (v != null) branchService.select(v);
+          },
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(children: [
+        const Icon(Icons.storefront_outlined, size: 16, color: Colors.black45),
+        const SizedBox(width: 6),
+        Text('Cabang', style: AppText.body(size: 11, color: Colors.black45)),
+        const SizedBox(width: 10),
+        Flexible(child: content),
+      ]),
     );
   }
 
@@ -573,6 +639,30 @@ class _ErpShellState extends State<ErpShell> {
             ),
           ),
           const Divider(color: AppColors.charLine, height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.bluetooth, size: 18, color: AppColors.cream),
+                label: Text('Printer Bluetooth',
+                    style: AppText.body(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: AppColors.cream)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.charLine),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  ThermalPrinter.manage(context);
+                },
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: SizedBox(

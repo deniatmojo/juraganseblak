@@ -1,14 +1,15 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../branch_service.dart';
+import '../services/qr_sheet.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -248,7 +249,7 @@ class _PesananOnlinePageState extends State<PesananOnlinePage>
                 ],
               ),
             ),
-            const _QrMejaView(),
+            _QrMejaView(user: widget.user),
           ],
         ),
       ),
@@ -352,6 +353,12 @@ class _OrderCard extends StatelessWidget {
                 '${progress.isNotEmpty ? ' · ${_progressLabel[progress] ?? progress}' : ''}',
                 style: AppText.body(size: 11, color: Colors.black45),
               ),
+              if (branchService.selected == 'all' &&
+                  '${order['branch_name'] ?? ''}'.isNotEmpty &&
+                  '${order['branch_name']}' != 'null')
+                Text('Cabang ${order['branch_name']}',
+                    style: AppText.body(
+                        size: 10, weight: FontWeight.w700, color: AppColors.chili)),
               // Badge meja (web: "🪑 Meja X — antar ke sini")
               if ('${order['table_no'] ?? ''}'.isNotEmpty &&
                   '${order['table_no']}' != 'null')
@@ -480,7 +487,8 @@ class _OrderCard extends StatelessWidget {
 // ============================================================================
 
 class _QrMejaView extends StatefulWidget {
-  const _QrMejaView();
+  final AppUser user;
+  const _QrMejaView({required this.user});
 
   @override
   State<_QrMejaView> createState() => _QrMejaViewState();
@@ -599,103 +607,61 @@ class _QrMejaViewState extends State<_QrMejaView> {
     await _run(() => api.del('/online/tables/${t['id']}'));
   }
 
-  /// Render QR ke PNG bytes untuk PDF lembar cetak.
-  Future<Uint8List?> _qrPng(String url) async {
-    try {
-      final painter = QrPainter(
-        data: url,
-        version: QrVersions.auto,
-        gapless: true,
-      );
-      final data = await painter.toImageData(300);
-      return data?.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// "🖨️ Cetak Semua QR" — padanan window.print() + TableQrPrintSheet web:
-  /// lembar A4 grid 2 kolom, kartu per meja aktif (judul, QR, 3 langkah),
-  /// dibagikan lewat sheet share agar bisa disimpan/dicetak.
-  Future<void> _printAllQr() async {
-    final active = tables
+  /// Cetak lembar QR A5 berlogo (satu halaman per meja) lewat dialog cetak
+  /// Android — bisa langsung ke printer atau "Simpan sebagai PDF". Kertas
+  /// sudah A5. Padanan tombol Cetak di web (QrPrintSheet.jsx).
+  Future<void> _printQr(List<Map<String, dynamic>> list) async {
+    final active = list
         .where((t) => t['is_active'] == 1 || t['is_active'] == true)
         .toList();
     if (active.isEmpty) return;
     setState(() => exporting = true);
     try {
-      final qrBytes = <String, Uint8List?>{};
-      for (final t in active) {
-        qrBytes['${t['id']}'] = await _qrPng(qrUrlFor(t));
-      }
-      final doc = pw.Document(
-          title: 'QR Meja — Juragan Seblak', creator: 'Juragan Seblak ERP');
-      doc.addPage(pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(14, 16, 14, 16),
-        header: (ctx) => pw.Column(children: [
-          if (ctx.pageNumber == 1) ...[
-            pw.Text('JURAGAN SEBLAK',
-                style: pw.TextStyle(
-                    fontSize: 22,
-                    fontWeight: pw.FontWeight.bold,
-                    color: const PdfColor.fromInt(0x16110F))),
-            pw.SizedBox(height: 4),
-            pw.Text('Scan QR di bawah untuk memesan dari meja',
-                style: const pw.TextStyle(
-                    fontSize: 11, color: PdfColor.fromInt(0x6B16110F))),
-          ],
-          pw.SizedBox(height: 12),
-        ]),
-        build: (_) => [
-          pw.Wrap(
-            spacing: 14,
-            runSpacing: 14,
-            children: [
-              for (final t in active)
-                pw.Container(
-                  width: (PdfPageFormat.a4.width - 28 - 14) / 2,
-                  padding: const pw.EdgeInsets.all(18),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(
-                        color: const PdfColor.fromInt(0xFF16110F), width: 2),
-                    borderRadius: pw.BorderRadius.circular(14),
-                  ),
-                  child: pw.Column(children: [
-                    pw.Text('MEJA ${t['label']}'.toUpperCase(),
-                        style: pw.TextStyle(
-                            fontSize: 18,
-                            fontWeight: pw.FontWeight.bold,
-                            color: const PdfColor.fromInt(0x16110F))),
-                    pw.SizedBox(height: 10),
-                    if (qrBytes['${t['id']}'] != null)
-                      pw.Image(pw.MemoryImage(qrBytes['${t['id']}']!),
-                          width: 130, height: 130),
-                    pw.SizedBox(height: 10),
-                    pw.Text('1. Scan QR dengan kamera HP',
-                        style: const pw.TextStyle(fontSize: 9)),
-                    pw.Text('2. Pilih menu & kirim pesanan',
-                        style: const pw.TextStyle(fontSize: 9)),
-                    pw.Text(
-                        '3. Bayar di meja — pesanan diantar ke meja ${t['label']}',
-                        style: const pw.TextStyle(fontSize: 9)),
-                  ]),
-                ),
-            ],
-          ),
+      final logo = (await rootBundle.load('assets/logo.jpg'))
+          .buffer
+          .asUint8List();
+      final bytes = await buildQrSheetPdf(
+        logo: logo,
+        host: Uri.parse(_origin).host,
+        tables: [
+          for (final t in active)
+            QrSheetTable(
+              url: qrUrlFor(t),
+              label: '${t['label']}',
+              branchName: '${t['branch_name'] ?? ''}' == 'null'
+                  ? ''
+                  : '${t['branch_name'] ?? ''}',
+            ),
         ],
-      ));
-      await Printing.sharePdf(
-          bytes: await doc.save(),
-          filename: 'QR-Meja-Juragan-Seblak.pdf');
+      );
+      await Printing.layoutPdf(
+        name: 'QR-Meja-Juragan-Seblak',
+        format: PdfPageFormat.a5,
+        onLayout: (_) async => bytes,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => exporting = false);
     }
   }
 
+  /// Meja yang tampil: difilter ke cabang aktif (owner/admin); kasir melihat
+  /// semua. 'Semua cabang' menampilkan seluruhnya dengan nama cabang.
+  List<Map<String, dynamic>> get _visible {
+    final id = branchService.effectiveId(widget.user);
+    if (!widget.user.isAdmin || id == null) return tables;
+    return tables.where((t) => '${t['branch_id']}' == '$id').toList();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final activeCount = tables
+    final shown = _visible;
+    final showBranch = branchService.effectiveId(widget.user) == null &&
+        widget.user.isAdmin;
+    final activeCount = shown
         .where((t) => t['is_active'] == 1 || t['is_active'] == true)
         .length;
     return RefreshIndicator(
@@ -714,15 +680,16 @@ class _QrMejaViewState extends State<_QrMejaView> {
                 side: const BorderSide(color: Colors.black12),
                 foregroundColor: AppColors.char,
                 minimumSize: const Size.fromHeight(46)),
-            onPressed:
-                exporting || loading || activeCount == 0 ? null : _printAllQr,
+            onPressed: exporting || loading || activeCount == 0
+                ? null
+                : () => _printQr(shown),
             icon: exporting
                 ? const SizedBox(
                     width: 14,
                     height: 14,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.print_outlined, size: 18),
-            label: Text(exporting ? 'Menyiapkan PDF…' : '🖨️ Cetak Semua QR',
+            label: Text(exporting ? 'Menyiapkan lembar A5…' : '🖨️ Cetak Semua QR (A5)',
                 style: AppText.body(size: 12, weight: FontWeight.w700)),
           ),
           const SizedBox(height: 14),
@@ -753,7 +720,7 @@ class _QrMejaViewState extends State<_QrMejaView> {
                       style:
                           AppText.body(size: 12, color: Colors.black38))),
             )
-          else if (tables.isEmpty)
+          else if (shown.isEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -765,13 +732,15 @@ class _QrMejaViewState extends State<_QrMejaView> {
                   style: AppText.body(size: 12, color: Colors.black38)),
             )
           else
-            for (final t in tables)
+            for (final t in shown)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _TableQrCard(
                   table: t,
                   qrUrl: qrUrlFor(t),
                   busy: busy,
+                  showBranch: showBranch,
+                  onPrint: (tb) => _printQr([tb]),
                   onRename: _rename,
                   onToggle: _toggle,
                   onDelete: _remove,
@@ -835,6 +804,8 @@ class _TableQrCard extends StatelessWidget {
   final Map<String, dynamic> table;
   final String qrUrl;
   final bool busy;
+  final bool showBranch;
+  final void Function(Map<String, dynamic>) onPrint;
   final void Function(Map<String, dynamic>) onRename;
   final void Function(Map<String, dynamic>) onToggle;
   final void Function(Map<String, dynamic>) onDelete;
@@ -843,6 +814,8 @@ class _TableQrCard extends StatelessWidget {
     required this.table,
     required this.qrUrl,
     required this.busy,
+    required this.showBranch,
+    required this.onPrint,
     required this.onRename,
     required this.onToggle,
     required this.onDelete,
@@ -863,6 +836,9 @@ class _TableQrCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text('🪑 Meja ${table['label']}', style: AppText.display(size: 18)),
+          if (showBranch && '${table['branch_name'] ?? ''}'.isNotEmpty && '${table['branch_name']}' != 'null')
+            Text('${table['branch_name']}',
+                style: AppText.body(size: 11, color: Colors.black45)),
           if (!active)
             Text('Nonaktif — QR tidak bisa dipakai',
                 style: AppText.body(
@@ -870,6 +846,24 @@ class _TableQrCard extends StatelessWidget {
                     weight: FontWeight.w700,
                     color: AppColors.chili)),
           const SizedBox(height: 12),
+          if (active)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.char,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 10)),
+                onPressed: busy ? null : () => onPrint(table),
+                icon: const Icon(Icons.print_outlined, size: 16),
+                label: Text('Cetak QR (A5)',
+                    style: AppText.body(
+                        size: 11,
+                        weight: FontWeight.w700,
+                        color: Colors.white)),
+              ),
+            ),
+          if (active) const SizedBox(height: 8),
           Row(children: [
             Expanded(
               child: OutlinedButton(

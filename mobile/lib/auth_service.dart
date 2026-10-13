@@ -11,16 +11,21 @@ class AppUser {
   final String name;
   final String email;
   final String role; // 'owner' | 'admin' | 'kasir' | 'karyawan' — sama dengan DB
+  final int? branchId; // admin: dikunci ke cabang ini; kasir: cabang bawaan
 
   const AppUser({
     required this.id,
     required this.name,
     required this.email,
     required this.role,
+    this.branchId,
   });
 
   bool get isOwner => role == 'owner';
   bool get isAdmin => role == 'owner' || role == 'admin';
+
+  /// Admin yang dikunci ke satu cabang tidak bisa memilih/mengganti cabang.
+  bool get isLockedAdmin => role == 'admin' && branchId != null;
 
   /// Label tampilan, sama dengan roleLabel AdminLayout.jsx web.
   String get roleLabel => const {
@@ -50,6 +55,11 @@ class AuthService extends ChangeNotifier {
           name: j['name'] ?? '',
           email: j['email'] ?? '',
           role: j['role'] ?? 'karyawan',
+          branchId: j['branch_id'] == null
+              ? null
+              : (j['branch_id'] is int
+                  ? j['branch_id'] as int
+                  : int.tryParse('${j['branch_id']}')),
         );
       } catch (_) {}
     }
@@ -70,6 +80,11 @@ class AuthService extends ChangeNotifier {
       name: u['name'] ?? '',
       email: u['email'] ?? email,
       role: u['role'] as String? ?? 'karyawan',
+      branchId: u['branch_id'] == null
+          ? null
+          : (u['branch_id'] is int
+              ? u['branch_id'] as int
+              : int.tryParse('${u['branch_id']}')),
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('erp_user', jsonEncode({
@@ -77,6 +92,7 @@ class AuthService extends ChangeNotifier {
       'name': _user!.name,
       'email': _user!.email,
       'role': _user!.role,
+      'branch_id': _user!.branchId,
     }));
     notifyListeners();
     return _user!;

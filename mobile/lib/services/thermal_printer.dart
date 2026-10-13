@@ -41,7 +41,9 @@ class ThermalData {
   final double subtotal;
   final double tax;
   final double service;
+  final double rounding; // pembulatan ke atas (0 = tanpa pembulatan)
   final double total;
+  final String branch; // nama cabang (dicetak di bawah alamat bila terisi)
 
   const ThermalData({
     required this.kind,
@@ -59,12 +61,15 @@ class ThermalData {
     required this.subtotal,
     required this.tax,
     required this.service,
+    this.rounding = 0,
     required this.total,
+    this.branch = '',
   });
 }
 
 class ThermalPrinter {
   static const _macKey = 'thermal_printer_mac';
+  static const _nameKey = 'thermal_printer_name';
 
   /// Cetak ke printer Bluetooth: minta izin runtime dulu (Android 12+
   /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), lalu coba
@@ -74,7 +79,7 @@ class ThermalPrinter {
   /// di sebagian ROM ia melaporkan false meski Bluetooth nyala (cek internal
   /// plugin terikat kombinasi izin). Kegagalan sejati muncul di connect.
   static Future<void> print(BuildContext context, ThermalData data) async {
-    await _ensurePermissions();
+    final permOk = await _ensurePermissions();
     final btReportsOff = !(await PrintBluetoothThermal.bluetoothEnabled);
     var connected = await PrintBluetoothThermal.connectionStatus;
     if (!connected) connected = await _connectSaved();
@@ -83,20 +88,136 @@ class ThermalPrinter {
       throw Exception('Aplikasi tidak aktif — coba cetak lagi.');
     }
     connected = await _connectPick(context);
-    if (!connected) {
-      throw Exception(btReportsOff
-          ? 'Bluetooth tidak terdeteksi aplikasi — pastikan Bluetooth menyala dan izin "Nearby devices" diberikan, lalu coba lagi.'
-          : 'Gagal terhubung ke printer — pastikan printer menyala dan sudah dipasangkan di pengaturan Bluetooth.');
-    }
+    if (!connected) throw Exception(_failMessage(permOk, btReportsOff));
     return _printBytes(data);
   }
+
+  static String _failMessage(bool permOk, bool btReportsOff) {
+    if (!permOk) {
+      return 'Izin Bluetooth ("Perangkat sekitar / Nearby devices") belum diberikan — izinkan di Pengaturan > Aplikasi > Juragan Seblak > Izin, lalu coba lagi.';
+    }
+    return btReportsOff
+        ? 'Bluetooth tidak terdeteksi aplikasi — pastikan Bluetooth menyala, lalu coba lagi.'
+        : 'Gagal terhubung ke printer — pastikan printer menyala, berada dekat HP, dan sudah dipasangkan di pengaturan Bluetooth.';
+  }
+
+  /// Menu "Printer Bluetooth": lihat printer tersimpan, pilih/ganti printer,
+  /// cetak tes, atau lupakan printer. Dibuka dari drawer aplikasi.
+  static Future<void> manage(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheetCtx) {
+        final mac = prefs.getString(_macKey);
+        final name = prefs.getString(_nameKey);
+        Future<void> run(Future<void> Function() job) async {
+          Navigator.pop(sheetCtx);
+          final messenger = ScaffoldMessenger.of(context);
+          try {
+            await job();
+          } catch (e) {
+            messenger.showSnackBar(SnackBar(
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: AppColors.chili,
+                content: Text(e.toString().replaceFirst('Exception: ', ''),
+                    style: AppText.body(size: 12, color: Colors.white))));
+          }
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Printer Bluetooth', style: AppText.display(size: 17)),
+                  const SizedBox(height: 4),
+                  Text(
+                      mac == null
+                          ? 'Belum ada printer tersimpan. Pasangkan (pairing) printer termal 58mm di pengaturan Bluetooth HP, lalu pilih di sini.'
+                          : 'Tersimpan: ${name ?? 'Printer'} ($mac)',
+                      style: AppText.body(size: 11, color: Colors.black45)),
+                  const SizedBox(height: 14),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.bluetooth_searching,
+                        color: AppColors.chili),
+                    title: Text(mac == null ? 'Pilih printer' : 'Ganti printer',
+                        style: AppText.body(size: 13, weight: FontWeight.w700)),
+                    onTap: () => run(() async {
+                      await _ensurePermissions();
+                      if (!context.mounted) return;
+                      final ok = await _connectPick(context);
+                      if (!ok) throw Exception('Printer belum terhubung.');
+                    }),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.print_outlined,
+                        color: AppColors.chili),
+                    title: Text('Cetak tes',
+                        style: AppText.body(size: 13, weight: FontWeight.w700)),
+                    subtitle: Text('Pastikan printer menyala & terhubung',
+                        style: AppText.body(size: 10, color: Colors.black45)),
+                    onTap: () => run(() async {
+                      await print(context, _testData());
+                    }),
+                  ),
+                  if (mac != null)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.link_off, color: Colors.black45),
+                      title: Text('Lupakan printer',
+                          style:
+                              AppText.body(size: 13, weight: FontWeight.w700)),
+                      onTap: () => run(() async {
+                        try {
+                          await PrintBluetoothThermal.disconnect;
+                        } catch (_) {}
+                        await prefs.remove(_macKey);
+                        await prefs.remove(_nameKey);
+                      }),
+                    ),
+                ]),
+          ),
+        );
+      },
+    );
+  }
+
+  static ThermalData _testData() => const ThermalData(
+        kind: 'struk',
+        no: 'TES-CETAK',
+        date: 'Tes printer Bluetooth',
+        cashier: 'Juragan Seblak',
+        method: 'Cash',
+        storeName: 'JURAGAN SEBLAK',
+        storeAddress: 'Tes cetak berhasil',
+        storePhone: '',
+        footer: 'Printer siap dipakai',
+        items: [ThermalItem(1, 'Item contoh', 10000, null)],
+        subtotal: 10000,
+        tax: 0,
+        service: 0,
+        total: 10000,
+      );
 
   /// Izin Bluetooth runtime — Android 12+ (API 31) menuntut BLUETOOTH_CONNECT
   /// diminta lewat dialog sistem sebelum pairedBluetooths/connect dipakai.
   /// BLUETOOTH_SCAN ikut diminta karena cek internal plugin bisa menggabungkan
   /// keduanya; kegagalannya tidak memblokir selama salah satu terlah granted.
-  static Future<void> _ensurePermissions() async {
-    if (!Platform.isAndroid) return;
+  ///
+  /// Mengembalikan false bila ditolak, tetapi TIDAK memblokir: di Android 11
+  /// ke bawah izin ini tidak ada (dilaporkan 'denied' padahal tidak
+  /// diperlukan), jadi koneksi tetap dicoba dan kegagalannya diberi pesan yang
+  /// menyebut izin bila memang itu penyebabnya.
+  static Future<bool> _ensurePermissions() async {
+    if (!Platform.isAndroid) return true;
     final statuses = await [
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
@@ -104,10 +225,7 @@ class ThermalPrinter {
     final connectOk =
         statuses[Permission.bluetoothConnect]?.isGranted ?? false;
     final scanOk = statuses[Permission.bluetoothScan]?.isGranted ?? false;
-    if (!connectOk && !scanOk) {
-      throw Exception(
-          'Izin Bluetooth ("Nearby devices") ditolak — izinkan di pengaturan aplikasi untuk mencetak.');
-    }
+    return connectOk || scanOk;
   }
 
   static Future<void> _printBytes(ThermalData raw) async {
@@ -116,8 +234,19 @@ class ThermalPrinter {
     final gen = Generator(PaperSize.mm58, profile);
     final bytes =
         data.kind == 'struk' ? _buildStruk(gen, data) : _buildDapur(gen, data);
-    final ok = await PrintBluetoothThermal.writeBytes(bytes);
-    if (!ok) throw Exception('Printer menolak data cetakan.');
+    var ok = await PrintBluetoothThermal.writeBytes(bytes);
+    if (!ok) {
+      // Koneksi bisa basi (printer sempat mati/ keluar jangkauan): sambung ulang
+      // ke printer tersimpan lalu coba sekali lagi sebelum menyerah.
+      try {
+        await PrintBluetoothThermal.disconnect;
+      } catch (_) {}
+      if (await _connectSaved()) ok = await PrintBluetoothThermal.writeBytes(bytes);
+    }
+    if (!ok) {
+      throw Exception(
+          'Printer tidak merespons — pastikan printer menyala & dekat HP, lalu coba cetak lagi.');
+    }
   }
 
   /// Salinan data dengan teks yang sudah dibersihkan dari non-ASCII.
@@ -142,7 +271,9 @@ class ThermalPrinter {
         subtotal: d.subtotal,
         tax: d.tax,
         service: d.service,
+        rounding: d.rounding,
         total: d.total,
+        branch: _clean(d.branch),
       );
 
   static Future<bool> _connectSaved() async {
@@ -212,6 +343,8 @@ class ThermalPrinter {
     if (mac == null) return false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_macKey, mac);
+    final picked = devices.where((d) => d.macAdress == mac).firstOrNull;
+    if (picked != null) await prefs.setString(_nameKey, picked.name);
     try {
       return await PrintBluetoothThermal.connect(macPrinterAddress: mac);
     } catch (_) {
@@ -245,6 +378,10 @@ class ThermalPrinter {
     if (d.storeAddress.isNotEmpty) {
       b.add(gen.text(d.storeAddress,
           styles: const PosStyles(align: PosAlign.center)));
+    }
+    if (d.branch.isNotEmpty) {
+      b.add(gen.text('Cabang: ${d.branch}',
+          styles: const PosStyles(align: PosAlign.center, bold: true)));
     }
     if (d.storePhone.isNotEmpty) {
       b.add(gen.text('Telp: ${d.storePhone}',
@@ -303,6 +440,7 @@ class ThermalPrinter {
     b.add(_row(gen, 'Subtotal', _rp(d.subtotal)));
     b.add(_row(gen, 'Pajak', _rp(d.tax)));
     b.add(_row(gen, 'Service', _rp(d.service)));
+    if (d.rounding > 0) b.add(_row(gen, 'Pembulatan', _rp(d.rounding)));
     b.add(_row(gen, 'TOTAL', _rp(d.total), bold: true, big: true));
     b.add(_row(gen, 'Metode', d.method));
     b.add(gen.hr(ch: '-', linesAfter: 1));
@@ -335,7 +473,10 @@ class ThermalPrinter {
             bold: true,
             height: PosTextSize.size2,
             width: PosTextSize.size2)));
-    b.add(gen.text(d.storeName.isEmpty ? 'Juragan Seblak' : d.storeName,
+    b.add(gen.text(
+        d.branch.isNotEmpty
+            ? d.branch
+            : (d.storeName.isEmpty ? 'Juragan Seblak' : d.storeName),
         styles: const PosStyles(align: PosAlign.center)));
     b.add(gen.hr(ch: '-', linesAfter: 1));
     b.add(_row(gen, 'No.', d.no, bold: true));

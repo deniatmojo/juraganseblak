@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../branch_service.dart';
 import '../services/thermal_printer.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -67,6 +68,7 @@ class _PosPageState extends State<PosPage> {
   List<(String, String)> categories = [('semua', 'Semua')];
   double taxRate = 0.10;
   double serviceRate = 0.05;
+  double roundingStep = 0; // 0 = tanpa pembulatan, 1000 = naik per Rp1.000
   String storeName = '';
   String storeAddress = '';
   String storePhone = '';
@@ -161,6 +163,8 @@ class _PosPageState extends State<PosPage> {
           taxRate = (num.tryParse('${settings['tax_rate']}') ?? 0.1).toDouble();
           serviceRate =
               (num.tryParse('${settings['service_rate']}') ?? 0.05).toDouble();
+          roundingStep =
+              (num.tryParse('${settings['rounding_step']}') ?? 0).toDouble();
           storeName = '${settings['store_name'] ?? ''}';
           storeAddress = '${settings['store_address'] ?? ''}';
           storePhone = '${settings['store_phone'] ?? ''}';
@@ -237,9 +241,32 @@ class _PosPageState extends State<PosPage> {
   }
 
   double get subtotal => cart.fold(0.0, (s, c) => s + c.lineTotal);
-  double get tax => subtotal * taxRate;
-  double get service => subtotal * serviceRate;
-  double get grandTotal => subtotal + tax + service;
+  // Sama persis dengan server (pricing.js): pajak & layanan dibulatkan ke rupiah,
+  // lalu total dinaikkan ke kelipatan roundingStep bila pembulatan aktif.
+  double get tax => (subtotal * taxRate).roundToDouble();
+  double get service => (subtotal * serviceRate).roundToDouble();
+  double get _rawTotal => subtotal + tax + service;
+  double get grandTotal => roundingStep > 0
+      ? (_rawTotal / roundingStep).ceilToDouble() * roundingStep
+      : _rawTotal;
+  double get rounding => grandTotal - _rawTotal;
+
+  String _pct(double rate) {
+    final s = (rate * 100).toStringAsFixed(2);
+    return s.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  /// Owner/admin tak terkunci mengikuti cabang di header; bila "Semua cabang"
+  /// dipilih, cabang harus dipilih dulu sebelum membuka shift / bertransaksi.
+  bool get _needsBranchPick =>
+      widget.user.isAdmin &&
+      !widget.user.isLockedAdmin &&
+      branchService.effectiveId(widget.user) == null;
+
+  String _branchNameOf(Map<String, dynamic> o) {
+    final id = int.tryParse('${o['branch_id']}');
+    return id == null ? '' : branchService.nameOf(id);
+  }
   int get totalQty => cart.fold(0, (s, c) => s + c.qty);
 
   // ---------- CHECKOUT: konfirmasi dua langkah / gateway ----------
@@ -247,6 +274,12 @@ class _PosPageState extends State<PosPage> {
   /// Titik masuk tombol Bayar — padanan startCheckout() Pos.jsx.
   void startCheckout() {
     if (cart.isEmpty || submitting) return;
+    if (shift == null) {
+      setState(() => error = _needsBranchPick
+          ? 'Pilih satu cabang di header (bukan "Semua cabang") lalu buka shift.'
+          : 'Shift belum dibuka di cabang ini. Buka shift dulu untuk menerima pesanan.');
+      return;
+    }
     if (payMethod == 'qris' && gateway != 'none') {
       createGatewayOrder();
       return;
@@ -533,7 +566,9 @@ class _PosPageState extends State<PosPage> {
           subtotal: n('subtotal').toDouble(),
           tax: n('tax_amount').toDouble(),
           service: n('service_amount').toDouble(),
+          rounding: n('rounding_amount').toDouble(),
           total: n('total').toDouble(),
+          branch: _branchNameOf(o),
         ),
       );
       if (mounted) {
@@ -561,6 +596,17 @@ class _PosPageState extends State<PosPage> {
   Future<void> _shiftDialog() async {
     final ctrl = TextEditingController();
     final closing = shift != null;
+    if (!closing && _needsBranchPick) {
+      setState(() => error =
+          'Pilih satu cabang di header (bukan "Semua cabang") untuk membuka shift.');
+      return;
+    }
+    // Cabang shift: owner/admin mengikuti header (terkunci), admin terkunci
+    // memakai cabangnya, kasir memilih sendiri (default cabang akunnya).
+    final u = widget.user;
+    int? branchChoice = branchService.effectiveId(u) ?? u.branchId ??
+        (branchService.branches.isEmpty ? null : branchService.branches.first.id);
+    final branchLocked = u.isAdmin && branchService.effectiveId(u) != null;
     double cashTotal = 0;
     if (closing) {
       final totals = Map<String, dynamic>.from(shift!['totals'] as Map? ?? {});
@@ -582,6 +628,22 @@ class _PosPageState extends State<PosPage> {
               style: AppText.body(size: 12, color: Colors.black54),
             ),
             const SizedBox(height: 14),
+            if (!closing && branchService.branches.isNotEmpty) ...[
+              StatefulBuilder(
+                builder: (_, setD) => DropdownButtonFormField<int>(
+                  initialValue: branchChoice,
+                  decoration: const InputDecoration(labelText: 'Cabang'),
+                  items: [
+                    for (final b in branchService.branches)
+                      DropdownMenuItem(value: b.id, child: Text(b.name)),
+                  ],
+                  onChanged: branchLocked
+                      ? null
+                      : (v) => setD(() => branchChoice = v),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: ctrl,
               keyboardType: TextInputType.number,
@@ -606,8 +668,10 @@ class _PosPageState extends State<PosPage> {
     if (action == null) return;
     try {
       if (action == 'open') {
-        final s = await api.post(
-            '/shifts', {'opening_cash': num.tryParse(ctrl.text) ?? 0});
+        final s = await api.post('/shifts', {
+          'opening_cash': num.tryParse(ctrl.text) ?? 0,
+          if (branchChoice != null) 'branch_id': branchChoice,
+        });
         setState(() => shift = Map<String, dynamic>.from(s as Map));
       } else {
         final rekap = await api.post('/shifts/${shift!['id']}/close',
@@ -1007,10 +1071,18 @@ class _PosPageState extends State<PosPage> {
       final totals = Map<String, dynamic>.from(shift!['totals'] as Map? ?? {});
       final openedAt = '${shift!['opened_at'] ?? ''}';
       final opened = openedAt.length >= 16 ? openedAt.substring(11, 16) : '—';
+      final bn = '${shift!['branch_name'] ?? ''}';
       info =
-          'Shift aktif sejak $opened · ${totals['order_count'] ?? 0} pesanan · ${formatRp(totals['sales_total'] ?? 0)}';
+          'Shift aktif sejak $opened${bn.isEmpty || bn == 'null' ? '' : ' · $bn'} · ${totals['order_count'] ?? 0} pesanan · ${formatRp(totals['sales_total'] ?? 0)}';
+    } else if (_needsBranchPick) {
+      info =
+          'Pilih satu cabang di header (bukan "Semua cabang") untuk membuka shift & bertransaksi.';
     } else {
-      info = 'Belum ada shift aktif — checkout tetap bisa.';
+      final bn = branchService.effectiveId(widget.user) == null
+          ? 'Cabang'
+          : branchService.nameOf(branchService.effectiveId(widget.user));
+      info =
+          '🔒 $bn TUTUP — belum bisa menerima pesanan (POS maupun online). Tekan Mulai Shift untuk membuka.';
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1037,7 +1109,7 @@ class _PosPageState extends State<PosPage> {
               style: AppText.body(
                   size: 11,
                   weight: FontWeight.w700,
-                  color: active ? const Color(0xFF166534) : Colors.black45)),
+                  color: active ? const Color(0xFF166534) : AppColors.chili)),
         ),
         const SizedBox(width: 8),
         OutlinedButton(
@@ -1053,7 +1125,7 @@ class _PosPageState extends State<PosPage> {
         ),
         const SizedBox(width: 8),
         FilledButton(
-          onPressed: _shiftDialog,
+          onPressed: (!active && _needsBranchPick) ? null : _shiftDialog,
           style: FilledButton.styleFrom(
             backgroundColor: active ? AppColors.char : AppColors.chili,
             elevation: 0,
@@ -1202,9 +1274,10 @@ class _PosPageState extends State<PosPage> {
               ),
             const Divider(height: 20),
             _totalRow('Subtotal', formatRp(subtotal)),
-            _totalRow('Pajak (${(taxRate * 100).round()}%)', formatRp(tax)),
-            _totalRow('Service Charge (${(serviceRate * 100).round()}%)',
+            _totalRow('Pajak (${_pct(taxRate)}%)', formatRp(tax)),
+            _totalRow('Service Charge (${_pct(serviceRate)}%)',
                 formatRp(service)),
+            if (rounding > 0) _totalRow('Pembulatan', formatRp(rounding)),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1265,8 +1338,15 @@ class _PosPageState extends State<PosPage> {
                       color: AppColors.chili)),
             ],
             const SizedBox(height: 12),
-            primaryButton(submitting ? 'Menyimpan...' : 'Bayar & Cetak Resi',
-                onPressed: cart.isEmpty || submitting ? null : startCheckout),
+            primaryButton(
+                submitting
+                    ? 'Menyimpan...'
+                    : shift == null
+                        ? 'Buka shift dulu untuk menerima pesanan'
+                        : 'Bayar & Cetak Resi',
+                onPressed: cart.isEmpty || submitting || shift == null
+                    ? null
+                    : startCheckout),
           ],
         ),
       );
@@ -1953,6 +2033,8 @@ class _ReceiptDialog extends StatelessWidget {
             _row('Subtotal', formatRp(receipt['subtotal'] ?? 0)),
             _row('Pajak', formatRp(receipt['tax_amount'] ?? 0)),
             _row('Service', formatRp(receipt['service_amount'] ?? 0)),
+            if ((num.tryParse('${receipt['rounding_amount']}') ?? 0) > 0)
+              _row('Pembulatan', formatRp(receipt['rounding_amount'] ?? 0)),
             dashed(),
             _row('Total', formatRp(receipt['total'] ?? 0), bold: true),
             _row('Metode', method),
@@ -2045,6 +2127,9 @@ class _ReceiptDialog extends StatelessWidget {
     buf.writeln('Subtotal: ${formatRp(receipt['subtotal'] ?? 0)}');
     buf.writeln('Pajak: ${formatRp(receipt['tax_amount'] ?? 0)}');
     buf.writeln('Service: ${formatRp(receipt['service_amount'] ?? 0)}');
+    if ((num.tryParse('${receipt['rounding_amount']}') ?? 0) > 0) {
+      buf.writeln('Pembulatan: ${formatRp(receipt['rounding_amount'] ?? 0)}');
+    }
     buf.writeln('*Total: ${formatRp(receipt['total'] ?? 0)}*');
     buf.writeln();
     buf.writeln('${receipt['receipt_footer'] ?? storeFooter}');

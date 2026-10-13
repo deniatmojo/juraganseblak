@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'branch_service.dart';
 import 'theme.dart';
 import 'pages/login_screen.dart';
 import 'pages/erp_shell.dart';
@@ -8,6 +9,7 @@ import 'pages/erp_shell.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   api.onUnauthorized = () => authService.logout();
+  api.branchProvider = () => branchService.paramFor(authService.user);
   runApp(const JuraganSeblakApp());
 }
 

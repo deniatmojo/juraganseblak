@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import '../api_client.dart';
 import '../auth_service.dart';
+import '../branch_service.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
 /// Stok bahan baku — menyalin web/src/pages/admin/Stock.jsx:
 /// GET /stock + /stock/movements, POST /stock/:id/move (dengan unit_cost &
 /// catatan agar belanja bahan otomatis tercatat di Keuangan), POST /stock.
+/// Stok per cabang: form masuk/bahan baru memilih cabang tujuan, ada transfer
+/// antar cabang (POST /stock/transfer) dan matriks stok semua cabang.
 class StockPage extends StatefulWidget {
   final AppUser user;
   const StockPage({super.key, required this.user});
@@ -20,6 +23,26 @@ class _StockPageState extends State<StockPage> {
   List<Map<String, dynamic>> movements = [];
   bool loading = true;
   String? error;
+
+  // Cabang bawaan form: cabang aktif di header; bila "Semua cabang" → cabang
+  // pertama. Admin terkunci tidak bisa memilih cabang lain.
+  int? get _defaultBranch =>
+      branchService.effectiveId(widget.user) ??
+      (branchService.branches.isEmpty ? null : branchService.branches.first.id);
+  bool get _branchLocked => widget.user.isLockedAdmin;
+
+  Widget _branchPicker(int? value, void Function(int?) onChanged,
+      {String label = 'Cabang'}) {
+    return DropdownButtonFormField<int>(
+      initialValue: value,
+      decoration: InputDecoration(labelText: label),
+      items: [
+        for (final b in branchService.branches)
+          DropdownMenuItem(value: b.id, child: Text(b.name)),
+      ],
+      onChanged: _branchLocked ? null : onChanged,
+    );
+  }
 
   @override
   void initState() {
@@ -58,6 +81,7 @@ class _StockPageState extends State<StockPage> {
     final qtyCtrl = TextEditingController();
     final costCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    int? branchChoice = _defaultBranch;
     final title = {
       'in': 'Barang Masuk (Restock)',
       'out': 'Barang Keluar (Waste/Pakai)',
@@ -70,9 +94,14 @@ class _StockPageState extends State<StockPage> {
           title: Text(title, style: AppText.display(size: 17)),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
-                '${item['name']} — saat ini ${_fmt(item['qty'])} ${item['unit']}',
+                '${item['name']}${branchService.selected.isNotEmpty && branchService.selected != 'all' ? ' — saat ini ${_fmt(item['qty'])} ${item['unit']}' : ''}',
                 style: AppText.body(size: 12, color: Colors.black54)),
             const SizedBox(height: 12),
+            if (branchService.branches.isNotEmpty) ...[
+              _branchPicker(branchChoice, (v) => setD(() => branchChoice = v),
+                  label: type == 'in' ? 'Cabang (dialokasikan ke)' : 'Cabang'),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: qtyCtrl,
               autofocus: true,
@@ -142,8 +171,181 @@ class _StockPageState extends State<StockPage> {
         'qty': _num(qtyCtrl.text) ?? 0,
         'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
         'unit_cost': _num(costCtrl.text) ?? 0,
+        if (branchChoice != null) 'branch_id': branchChoice,
       });
       await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  /// Transfer stok antar cabang — tidak dihitung pembelian/pemakaian (kas &
+  /// HPP tidak berubah). Padanan modal Transfer Stok di web Stock.jsx.
+  Future<void> _transferDialog(Map<String, dynamic> item) async {
+    final qtyCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    int? from = _defaultBranch;
+    int? to = branchService.branches
+        .where((b) => b.id != from)
+        .map((b) => b.id)
+        .firstOrNull;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, setD) => AlertDialog(
+          title: Text('Transfer Stok', style: AppText.display(size: 17)),
+          content: SingleChildScrollView(
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${item['name']} — pindahkan stok antar cabang',
+                      style: AppText.body(size: 12, color: Colors.black54)),
+                  const SizedBox(height: 12),
+                  _branchPicker(from, (v) {
+                    setD(() {
+                      from = v;
+                      if (to == v) {
+                        to = branchService.branches
+                            .where((b) => b.id != v)
+                            .map((b) => b.id)
+                            .firstOrNull;
+                      }
+                    });
+                  }, label: 'Dari cabang'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: to,
+                    decoration: const InputDecoration(labelText: 'Ke cabang'),
+                    items: [
+                      for (final b in branchService.branches.where((b) => b.id != from))
+                        DropdownMenuItem(value: b.id, child: Text(b.name)),
+                    ],
+                    onChanged: (v) => setD(() => to = v),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: qtyCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                        labelText: 'Jumlah', suffixText: '${item['unit']}'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteCtrl,
+                    decoration:
+                        const InputDecoration(labelText: 'Catatan (opsional)'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                      'Transfer tidak dihitung sebagai pembelian maupun pemakaian — tidak memengaruhi kas atau HPP.',
+                      style: AppText.body(size: 10, color: Colors.black38)),
+                ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d, false),
+                child: const Text('Batal')),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.chili, elevation: 0),
+              onPressed: () => Navigator.pop(d, true),
+              child: const Text('Transfer'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await api.post('/stock/transfer', {
+        'item_id': item['id'],
+        'from_branch_id': from,
+        'to_branch_id': to,
+        'qty': _num(qtyCtrl.text) ?? 0,
+        'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+      });
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  /// Matriks bahan × cabang (GET /stock/overview).
+  Future<void> _showOverview() async {
+    try {
+      final data = Map<String, dynamic>.from(
+          await api.get('/stock/overview') as Map);
+      final branches = (data['branches'] as List)
+          .map((b) => Map<String, dynamic>.from(b as Map))
+          .toList();
+      final rows = (data['items'] as List)
+          .map((i) => Map<String, dynamic>.from(i as Map))
+          .toList();
+      if (!mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        builder: (_) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.8,
+          maxChildSize: 0.95,
+          builder: (_, scroll) => ListView(
+            controller: scroll,
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text('Stok per Cabang', style: AppText.display(size: 18)),
+              const SizedBox(height: 12),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 20,
+                  headingRowHeight: 40,
+                  dataRowMinHeight: 36,
+                  dataRowMaxHeight: 40,
+                  columns: [
+                    DataColumn(
+                        label: Text('Bahan',
+                            style: AppText.body(size: 11, weight: FontWeight.w700))),
+                    for (final b in branches)
+                      DataColumn(
+                          label: Text('${b['name']}',
+                              style: AppText.body(
+                                  size: 11, weight: FontWeight.w700))),
+                  ],
+                  rows: [
+                    for (final it in rows)
+                      DataRow(cells: [
+                        DataCell(Text('${it['name']}',
+                            style: AppText.body(size: 12, weight: FontWeight.w600))),
+                        for (final b in branches)
+                          () {
+                            final c = Map<String, dynamic>.from(
+                                (it['per_branch'] as Map)['${b['id']}'] as Map);
+                            final low = c['is_low'] == true || c['is_low'] == 1;
+                            return DataCell(Text(
+                                '${_fmt(c['qty'])} ${it['unit']}',
+                                style: AppText.body(
+                                    size: 12,
+                                    weight: low ? FontWeight.w800 : FontWeight.w400,
+                                    color: low ? AppColors.chili : Colors.black87)));
+                          }(),
+                      ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));
@@ -160,6 +362,7 @@ class _StockPageState extends State<StockPage> {
     final minCtrl = TextEditingController();
     String category = 'Protein';
     String unit = 'kg';
+    int? branchChoice = _defaultBranch;
     const categories = ['Protein', 'Bumbu', 'Pokok', 'Pelengkap', 'Lain-lain'];
     const units = ['kg', 'gram', 'liter', 'ml', 'pcs', 'pack'];
     final ok = await showDialog<bool>(
@@ -167,7 +370,12 @@ class _StockPageState extends State<StockPage> {
       builder: (d) => StatefulBuilder(
         builder: (d, setD) => AlertDialog(
           title: Text('Bahan Baru', style: AppText.display(size: 17)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (branchService.branches.isNotEmpty) ...[
+              _branchPicker(branchChoice, (v) => setD(() => branchChoice = v),
+                  label: 'Stok awal untuk cabang'),
+              const SizedBox(height: 12),
+            ],
             TextField(
                 controller: nameCtrl,
                 autofocus: true,
@@ -231,7 +439,7 @@ class _StockPageState extends State<StockPage> {
               'Harga per unit dipakai untuk menilai persediaan & menghitung HPP di laporan Laba Rugi. Stok awal tidak dihitung sebagai pembelian.',
               style: AppText.body(size: 10, color: Colors.black38),
             ),
-          ]),
+          ])),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(d, false),
@@ -256,6 +464,7 @@ class _StockPageState extends State<StockPage> {
         'qty': _num(qtyCtrl.text) ?? 0,
         'min_qty': _num(minCtrl.text) ?? 0,
         'unit_cost': _num(costCtrl.text) ?? 0,
+        if (branchChoice != null) 'branch_id': branchChoice,
       });
       await _load();
     } catch (e) {
@@ -297,6 +506,30 @@ class _StockPageState extends State<StockPage> {
                       weight: FontWeight.w700,
                       color: AppColors.chili)),
             ),
+          SectionCard(
+            child: Row(children: [
+              const Icon(Icons.storefront_outlined, size: 18, color: Colors.black45),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  branchService.selected == 'all' && !widget.user.isLockedAdmin
+                      ? 'Stok: semua cabang (total gabungan). Pilih cabang tujuan di form saat mencatat stok.'
+                      : 'Stok cabang: ${branchService.nameOf(branchService.effectiveId(widget.user))}',
+                  style: AppText.body(size: 12, weight: FontWeight.w700),
+                ),
+              ),
+              if (branchService.branches.length > 1)
+                TextButton(
+                  onPressed: _showOverview,
+                  child: Text('Semua cabang',
+                      style: AppText.body(
+                          size: 11,
+                          weight: FontWeight.w700,
+                          color: AppColors.chili)),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 14),
           Row(children: [
             Expanded(
                 child: StatCardRow(
@@ -453,6 +686,14 @@ class _StockPageState extends State<StockPage> {
                                     size: 11, weight: FontWeight.w700)),
                           ),
                         ),
+                        if (branchService.branches.length > 1)
+                          IconButton(
+                            tooltip: 'Transfer antar cabang',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _transferDialog(item),
+                            icon: const Icon(Icons.swap_horiz,
+                                size: 20, color: Color(0xFF1D4ED8)),
+                          ),
                       ]),
                     ]),
                   ),
@@ -489,18 +730,24 @@ class _StockPageState extends State<StockPage> {
                             ? Icons.south_west
                             : m['type'] == 'adjust'
                                 ? Icons.tune
-                                : Icons.north_east,
+                                : (m['type'] == 'transfer_in' ||
+                                        m['type'] == 'transfer_out')
+                                    ? Icons.swap_horiz
+                                    : Icons.north_east,
                         size: 18,
                         color: m['type'] == 'in'
                             ? AppColors.greenOk
                             : m['type'] == 'adjust'
                                 ? AppColors.ember
-                                : AppColors.chili),
+                                : (m['type'] == 'transfer_in' ||
+                                        m['type'] == 'transfer_out')
+                                    ? const Color(0xFF1D4ED8)
+                                    : AppColors.chili),
                     title: Text(
-                        '${m['item_name']} — ${m['type'] == 'in' ? 'Masuk' : m['type'] == 'adjust' ? 'Opname' : 'Keluar'} ${_fmt(m['qty'])}',
+                        '${m['item_name']} — ${const {'in': 'Masuk', 'out': 'Keluar', 'adjust': 'Opname', 'transfer_in': 'Transfer masuk', 'transfer_out': 'Transfer keluar'}[m['type']] ?? m['type']} ${_fmt(m['qty'])}',
                         style: AppText.body(size: 12, color: Colors.black54)),
                     subtitle: Text(
-                        '${m['by_name'] ?? 'Sistem'}${m['note'] != null && m['note'] != '' ? ' · ${m['note']}' : ''}',
+                        '${m['branch_name'] != null && m['branch_name'] != '' ? '${m['branch_name']} · ' : ''}${m['by_name'] ?? 'Sistem'}${m['note'] != null && m['note'] != '' ? ' · ${m['note']}' : ''}',
                         style:
                             AppText.body(size: 11, color: Colors.black38)),
                   ),
