@@ -81,13 +81,19 @@ export default function Pos() {
   // mengikuti cabang tersebut. Default: cabang aktif di header / cabang akun.
   const [branches, setBranches] = useState([])
   const [shiftBranch, setShiftBranch] = useState('')
+  // Owner/admin tak terkunci mengikuti cabang di header: shift dibuka & ditutup per
+  // cabang, jadi cabangnya tidak dipilih ulang di modal. Kasir memilih sendiri.
+  const isPicker = user?.role === 'owner' || (user?.role === 'admin' && !user?.branch_id)
+  const followHeader = isPicker && /^\d+$/.test(ctxBranch || '')
+  const needsPick = isPicker && !followHeader
+  const headerBranchName = branches.find((b) => String(b.id) === String(ctxBranch))?.name
   useEffect(() => {
     api.get('/branch-options').then((rows) => {
       setBranches(rows)
-      const pref = [user?.branch_id, ctxBranch].map(String).find((v) => rows.some((b) => String(b.id) === v))
+      const pref = [followHeader ? ctxBranch : null, user?.branch_id, ctxBranch].map(String).find((v) => rows.some((b) => String(b.id) === v))
       setShiftBranch(pref ?? String(rows[0]?.id ?? ''))
     }).catch(() => {})
-  }, [user?.branch_id, ctxBranch])
+  }, [user?.branch_id, ctxBranch, followHeader])
 
   const startShift = async () => {
     try {
@@ -514,9 +520,13 @@ export default function Pos() {
             </>
           ) : (
             <>
-              <span className="text-xs font-bold text-char/60">Belum ada shift aktif — checkout tetap bisa, tapi tidak tercatat di rekap kas.</span>
+              <span className="text-xs font-bold text-char/60">
+                {needsPick
+                  ? 'Pilih satu cabang di header (bukan "Semua cabang") untuk membuka shift & bertransaksi.'
+                  : `Belum ada shift aktif${headerBranchName ? ` di ${headerBranchName}` : ''} — checkout tetap bisa, tapi tidak tercatat di rekap kas.`}
+              </span>
               <button onClick={openQueue} className="ml-auto text-xs font-bold text-char border border-black/15 hover:border-char px-4 py-2 rounded-full shrink-0">Antrian Pesanan</button>
-              <button onClick={() => setShiftModal('open')} className="text-xs font-bold text-white bg-chili hover:bg-chili-dark px-4 py-2 rounded-full shrink-0">Mulai Shift</button>
+              <button onClick={() => setShiftModal('open')} disabled={needsPick} className="text-xs font-bold text-white bg-chili hover:bg-chili-dark disabled:opacity-40 px-4 py-2 rounded-full shrink-0">Mulai Shift</button>
             </>
           )}
         </div>
@@ -976,7 +986,7 @@ export default function Pos() {
                 <select
                   value={shiftBranch}
                   onChange={(e) => setShiftBranch(e.target.value)}
-                  disabled={user?.role === 'admin' && Boolean(user?.branch_id)}
+                  disabled={followHeader || (user?.role === 'admin' && Boolean(user?.branch_id))}
                   className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm mb-4 bg-white focus:outline-none focus:ring-2 focus:ring-chili/30"
                 >
                   {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

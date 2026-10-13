@@ -132,13 +132,13 @@ router.post('/', async (req, res, next) => {
     const orderNo = await nextOrderNo(conn);
 
     // Pesanan otomatis masuk shift aktif kasir (bila ada)
+    // Cabang transaksi: kasir = cabang shift terbukanya; owner/admin = cabang aktif
+    // di header (body.branch_id). Shift yang dipakai = shift terbuka akun ini DI cabang itu.
+    const branchId = await resolveBranch(req, { conn });
     const [[openShift]] = await conn.query(
-      'SELECT id, branch_id FROM shifts WHERE user_id = :u AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
-      { u: req.user?.id ?? 0 }
+      'SELECT id, branch_id FROM shifts WHERE user_id = :u AND branch_id = :b AND closed_at IS NULL ORDER BY id DESC LIMIT 1',
+      { u: req.user?.id ?? 0, b: branchId }
     );
-    // Cabang transaksi: cabang shift yang sedang terbuka (kasir wajib per cabang);
-    // tanpa shift → ditentukan dari akun / body.branch_id.
-    const branchId = openShift?.branch_id ?? await resolveBranch(req, { conn });
 
     const [orderResult] = await conn.query(
       `INSERT INTO orders (order_no, channel, customer_name, table_no, subtotal,

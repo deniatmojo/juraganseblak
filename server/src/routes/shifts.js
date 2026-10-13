@@ -47,14 +47,21 @@ router.get('/', requireRole('owner', 'admin'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/shifts/active — shift aktif milik user login (+ total live)
+// GET /api/shifts/active?branch_id= — shift aktif milik user login (+ total live).
+// Shift dihitung per akun DAN per cabang: buka/tutup shift di satu cabang tidak
+// memengaruhi cabang lain. Tanpa cabang spesifik (mis. "semua cabang" / kasir
+// tanpa pilihan) → shift terbuka terbaru.
 router.get('/active', async (req, res, next) => {
   try {
+    const branch = await resolveBranch(req, { allowAll: true });
+    const params = { u: req.user.id };
+    const branchWhere = branch != null ? ' AND s.branch_id = :branch' : '';
+    if (branch != null) params.branch = branch;
     const [[shift]] = await pool.query(
       `SELECT s.id, s.opening_cash, s.opened_at, s.branch_id, b.name AS branch_name
        FROM shifts s LEFT JOIN branches b ON b.id = s.branch_id
-       WHERE s.user_id = :u AND s.closed_at IS NULL ORDER BY s.id DESC LIMIT 1`,
-      { u: req.user.id }
+       WHERE s.user_id = :u AND s.closed_at IS NULL${branchWhere} ORDER BY s.id DESC LIMIT 1`,
+      params
     );
     if (!shift) return res.json(null);
     const totals = await shiftTotals(shift.id);
@@ -65,10 +72,6 @@ router.get('/active', async (req, res, next) => {
 // POST /api/shifts — mulai shift { opening_cash, note? }
 router.post('/', async (req, res, next) => {
   try {
-    const [[open]] = await pool.query(
-      'SELECT id FROM shifts WHERE user_id = :u AND closed_at IS NULL', { u: req.user.id }
-    );
-    if (open) return res.status(409).json({ error: 'Masih ada shift yang terbuka. Tutup dulu shift sebelumnya.' });
     const { opening_cash = 0, note = null } = req.body || {};
     // Cabang dipilih saat buka shift (transaksi & stok shift ini mengikuti cabang ini).
     // Tanpa pilihan: cabang bawaan akun, lalu cabang utama.
@@ -85,6 +88,11 @@ router.post('/', async (req, res, next) => {
       const [[u]] = await pool.query('SELECT branch_id FROM users WHERE id = :u', { u: req.user.id });
       if (u?.branch_id && u.branch_id !== branchId) return res.status(403).json({ error: 'Anda hanya bisa membuka shift di cabang Anda' });
     }
+    // Satu akun boleh punya shift terbuka di beberapa cabang, tapi hanya satu per cabang.
+    const [[open]] = await pool.query(
+      'SELECT id FROM shifts WHERE user_id = :u AND branch_id = :b AND closed_at IS NULL', { u: req.user.id, b: branchId }
+    );
+    if (open) return res.status(409).json({ error: 'Shift di cabang ini masih terbuka. Tutup dulu shift cabang ini sebelum membuka yang baru.' });
     const [result] = await pool.query(
       'INSERT INTO shifts (user_id, opening_cash, note, branch_id) VALUES (:u, :cash, :note, :b)',
       { u: req.user.id, cash: opening_cash, note, b: branchId }
