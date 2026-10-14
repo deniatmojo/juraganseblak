@@ -70,6 +70,7 @@ class ThermalData {
 class ThermalPrinter {
   static const _macKey = 'thermal_printer_mac';
   static const _nameKey = 'thermal_printer_name';
+  static const _safeKey = 'thermal_printer_safe'; // true = tanpa QR & potong kertas
 
   /// Cetak ke printer Bluetooth: minta izin runtime dulu (Android 12+
   /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), lalu coba
@@ -232,21 +233,50 @@ class ThermalPrinter {
     final data = _sanitized(raw);
     final profile = await CapabilityProfile.load();
     final gen = Generator(PaperSize.mm58, profile);
-    final bytes =
-        data.kind == 'struk' ? _buildStruk(gen, data) : _buildDapur(gen, data);
-    var ok = await PrintBluetoothThermal.writeBytes(bytes);
+    Uint8List build({required bool safe}) => data.kind == 'struk'
+        ? _buildStruk(gen, data, safe: safe)
+        : _buildDapur(gen, data, safe: safe);
+
+    final prefs = await SharedPreferences.getInstance();
+    final preferSafe = prefs.getBool(_safeKey) ?? false;
+    var ok = await _sendChunked(build(safe: preferSafe));
     if (!ok) {
-      // Koneksi bisa basi (printer sempat mati/ keluar jangkauan): sambung ulang
-      // ke printer tersimpan lalu coba sekali lagi sebelum menyerah.
+      // Koneksi bisa basi (printer sempat mati/keluar jangkauan): sambung ulang
+      // ke printer tersimpan lalu coba lagi.
       try {
         await PrintBluetoothThermal.disconnect;
       } catch (_) {}
-      if (await _connectSaved()) ok = await PrintBluetoothThermal.writeBytes(bytes);
+      if (await _connectSaved()) {
+        await Future.delayed(const Duration(milliseconds: 400));
+        ok = await _sendChunked(build(safe: preferSafe));
+      }
+    }
+    if (!ok && !preferSafe) {
+      // Terakhir: mode aman (tanpa QR & potong kertas). Bila berhasil, diingat
+      // untuk cetakan berikutnya karena printer ini jelas tak menerima keduanya.
+      if (await PrintBluetoothThermal.connectionStatus ||
+          await _connectSaved()) {
+        ok = await _sendChunked(build(safe: true));
+        if (ok) await prefs.setBool(_safeKey, true);
+      }
     }
     if (!ok) {
       throw Exception(
-          'Printer tidak merespons — pastikan printer menyala & dekat HP, lalu coba cetak lagi.');
+          'Printer terhubung tetapi tidak menerima data — pastikan penutup kertas tertutup, kertas ada, printer dekat HP dan tidak sedang dipakai aplikasi lain, lalu coba lagi.');
     }
+  }
+
+  /// Kirim per potongan kecil dengan jeda — printer Bluetooth murah (mis. RPP02N)
+  /// sering memutus koneksi bila menerima data sekaligus dalam satu blok besar.
+  static Future<bool> _sendChunked(Uint8List bytes) async {
+    const chunk = 200;
+    for (var i = 0; i < bytes.length; i += chunk) {
+      final end = i + chunk > bytes.length ? bytes.length : i + chunk;
+      final ok = await PrintBluetoothThermal.writeBytes(bytes.sublist(i, end));
+      if (!ok) return false;
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
+    return true;
   }
 
   /// Salinan data dengan teks yang sudah dibersihkan dari non-ASCII.
@@ -434,7 +464,7 @@ class ThermalPrinter {
       .replaceAllMapped(RegExp(r'[^\x20-\x7E\n]'), (m) => '');
 
   // ---- Template STRUK — mirror web Pos.jsx:807-838 ----
-  static Uint8List _buildStruk(Generator gen, ThermalData d) {
+  static Uint8List _buildStruk(Generator gen, ThermalData d, {bool safe = false}) {
     final b = BytesBuilder();
     b.add(gen.reset());
     b.add(gen.text(d.storeName.isEmpty ? 'JURAGAN SEBLAK' : d.storeName,
@@ -513,10 +543,12 @@ class ThermalPrinter {
     b.add(_row(gen, 'Metode', d.method));
     b.add(gen.hr(ch: '-', linesAfter: 1));
     b.add(gen.text(d.no, styles: const PosStyles(align: PosAlign.center)));
-    try {
-      b.add(gen.qrcode(d.no));
-    } catch (_) {
-      // printer tak mendukung QR — lewati
+    if (!safe) {
+      try {
+        b.add(gen.qrcode(d.no));
+      } catch (_) {
+        // printer tak mendukung QR — lewati
+      }
     }
     b.add(gen.text('LUNAS',
         styles: const PosStyles(
@@ -526,13 +558,15 @@ class ThermalPrinter {
             width: PosTextSize.size2)));
     b.add(gen.text(d.footer.isEmpty ? 'Terima kasih!' : d.footer,
         styles: const PosStyles(align: PosAlign.center)));
-    b.add(gen.feed(2));
-    b.add(gen.cut());
+    // Mode aman: tanpa perintah potong (sebagian printer 58mm tanpa pemotong
+    // memutus koneksi saat menerimanya) — cukup dorong kertas keluar.
+    b.add(gen.feed(safe ? 4 : 2));
+    if (!safe) b.add(gen.cut());
     return b.toBytes();
   }
 
   // ---- Template RESEP DAPUR — mirror web Pos.jsx:839-860 ----
-  static Uint8List _buildDapur(Generator gen, ThermalData d) {
+  static Uint8List _buildDapur(Generator gen, ThermalData d, {bool safe = false}) {
     final b = BytesBuilder();
     b.add(gen.reset());
     b.add(gen.text('RESEP DAPUR',
@@ -580,10 +614,12 @@ class ThermalPrinter {
       }
     }
     b.add(gen.hr(ch: '-', linesAfter: 1));
-    b.add(gen.text('Untuk koki — selesaikan sesuai urutan datang',
+    b.add(gen.text('Untuk koki - selesaikan sesuai urutan datang',
         styles: const PosStyles(align: PosAlign.center)));
-    b.add(gen.feed(2));
-    b.add(gen.cut());
+    // Mode aman: tanpa perintah potong (sebagian printer 58mm tanpa pemotong
+    // memutus koneksi saat menerimanya) — cukup dorong kertas keluar.
+    b.add(gen.feed(safe ? 4 : 2));
+    if (!safe) b.add(gen.cut());
     return b.toBytes();
   }
 

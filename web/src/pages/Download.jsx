@@ -45,7 +45,7 @@ export default function Download() {
         </p>
 
         <a
-          href="/apk/juragan-seblak.apk?v=15"
+          href="/apk/juragan-seblak.apk?v=16"
           download
           className="inline-flex items-center gap-3 bg-chili hover:bg-chili-dark text-white text-lg font-bold px-10 py-4 rounded-full transition-colors shadow-lg shadow-chili/30"
         >
@@ -54,7 +54,7 @@ export default function Download() {
           </svg>
           Unduh Aplikasi (APK)
         </a>
-        <p className="text-sm text-char/50 mt-4">Versi 0.2.1 &middot; Android 7.0+ &middot; ± 60 MB</p>
+        <p className="text-sm text-char/50 mt-4">Versi 0.2.2 &middot; Android 7.0+ &middot; ± 60 MB</p>
 
         <div className="mt-14 grid gap-5 text-left">
           {steps.map((s, i) => (

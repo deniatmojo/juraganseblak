@@ -1,7 +1,7 @@
 name: juragan_seblak_app
 description: Aplikasi Android ERP & POS Juragan Seblak.
 publish_to: "none"
-version: 0.2.1+15
+version: 0.2.2+16
 
 environment:
   sdk: ^3.13.3
