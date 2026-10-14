@@ -347,14 +347,18 @@ class ThermalPrinter {
       out.add(line);
       out.add(row('Subtotal', _rp(d.subtotal)));
       out.add(row('Pajak', _rp(d.tax)));
-      out.add(row('Service', _rp(d.service)));
-      if (d.rounding > 0) out.add(row('Pembulatan', _rp(d.rounding)));
+      // Pembulatan digabung ke baris Service (di sistem tetap tercatat terpisah).
+      out.add(row('Service', _rp(d.service + d.rounding)));
       out.add(row('TOTAL', _rp(d.total)));
       out.add(row('Metode', d.method));
       out.add(line);
-      out.add(center(d.no));
       out.add(center('LUNAS'));
-      out.add(center(d.footer.isEmpty ? 'Terima kasih!' : d.footer));
+      out.add(line);
+      out.add(center('Struk ini dibuat oleh'));
+      out.add(center('AIRA DYNAMICS'));
+      out.add(center('Sistem kasir & website bisnis'));
+      out.add(center('WA/Telp: 0882-9839-1955'));
+      out.add(center('www.airadynamics.com'));
     } else {
       out.add(center('RESEP DAPUR'));
       out.add(center(d.branch.isNotEmpty
@@ -710,27 +714,27 @@ class ThermalPrinter {
     b.add(gen.hr(ch: '-', linesAfter: 1));
     b.add(_row(gen, 'Subtotal', _rp(d.subtotal)));
     b.add(_row(gen, 'Pajak', _rp(d.tax)));
-    b.add(_row(gen, 'Service', _rp(d.service)));
-    if (d.rounding > 0) b.add(_row(gen, 'Pembulatan', _rp(d.rounding)));
+    // Pembulatan digabung ke baris Service (di sistem tetap tercatat terpisah).
+    b.add(_row(gen, 'Service', _rp(d.service + d.rounding)));
     b.add(_row(gen, 'TOTAL', _rp(d.total), bold: true, big: true));
     b.add(_row(gen, 'Metode', d.method));
     b.add(gen.hr(ch: '-', linesAfter: 1));
-    b.add(gen.text(d.no, styles: const PosStyles(align: PosAlign.center)));
-    if (!safe) {
-      try {
-        b.add(gen.qrcode(d.no));
-      } catch (_) {
-        // printer tak mendukung QR — lewati
-      }
-    }
     b.add(gen.text('LUNAS',
         styles: const PosStyles(
             align: PosAlign.center,
             bold: true,
             height: PosTextSize.size2,
             width: PosTextSize.size2)));
-    b.add(gen.text(d.footer.isEmpty ? 'Terima kasih!' : d.footer,
-        styles: const PosStyles(align: PosAlign.center)));
+    b.add(gen.hr(ch: '-', linesAfter: 1));
+    // Identitas pengembang (promosi) — hanya di struk.
+    const center = PosStyles(align: PosAlign.center);
+    b.add(gen.text('Struk ini dibuat oleh', styles: center));
+    b.add(gen.text('AIRA DYNAMICS',
+        styles: const PosStyles(
+            align: PosAlign.center, bold: true, height: PosTextSize.size2)));
+    b.add(gen.text('Sistem kasir & website bisnis', styles: center));
+    b.add(gen.text('WA/Telp: 0882-9839-1955', styles: center));
+    b.add(gen.text('www.airadynamics.com', styles: center));
     // Mode aman: tanpa perintah potong (sebagian printer 58mm tanpa pemotong
     // memutus koneksi saat menerimanya) — cukup dorong kertas keluar.
     b.add(gen.feed(safe ? 4 : 2));

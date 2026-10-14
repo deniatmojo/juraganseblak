@@ -448,8 +448,7 @@ export default function Order() {
                   <div className="space-y-1 text-sm text-char/60 border-t border-black/5 pt-4">
                     <div className="flex justify-between"><span>Subtotal</span><span>{rupiah(subtotal)}</span></div>
                     {taxRate > 0 && <div className="flex justify-between"><span>Pajak {Math.round(taxRate * 100)}%</span><span>{rupiah(tax)}</span></div>}
-                    {serviceRate > 0 && <div className="flex justify-between"><span>Service {Number((serviceRate * 100).toFixed(2))}%</span><span>{rupiah(service)}</span></div>}
-                    {rounding > 0 && <div className="flex justify-between"><span>Pembulatan</span><span>{rupiah(rounding)}</span></div>}
+                    {(serviceRate > 0 || rounding > 0) && <div className="flex justify-between"><span>Service{rounding > 0 ? '' : ` ${Number((serviceRate * 100).toFixed(2))}%`}</span><span>{rupiah(service + rounding)}</span></div>}
                   </div>
                 )}
                 {(portions.length > 0 || cartItems.length > 0) && (

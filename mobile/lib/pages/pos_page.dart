@@ -479,8 +479,15 @@ class _PosPageState extends State<PosPage> {
 
   // ---------- CETAK TERMAL 58mm (ESC/POS Bluetooth — padanan window.print) ----------
 
+  /// Cadangan bila respons server belum memuat created_at (format DB lokal).
+  static String _nowStamp() {
+    final n = DateTime.now();
+    String t(int v) => v.toString().padLeft(2, '0');
+    return '${n.year}-${t(n.month)}-${t(n.day)} ${t(n.hour)}:${t(n.minute)}:${t(n.second)}';
+  }
+
   static String _fmtDateId(dynamic dt) {
-    final s = '$dt';
+    final s = '$dt' == 'null' ? _nowStamp() : '$dt';
     if (s.length < 16) return s;
     return '${s.substring(0, 10).split('-').reversed.join('/')} ${s.substring(11, 16).replaceAll(':', '.')}';
   }
@@ -546,7 +553,7 @@ class _PosPageState extends State<PosPage> {
         ThermalData(
           kind: kind,
           no: '${o['order_no'] ?? ''}',
-          date: _fmtDateId(o['created_at']),
+          date: _fmtDateId(o['created_at'] ?? _nowStamp()),
           cashier: cashierOverride ?? '${o['cashier_name'] ?? widget.user.name}',
           customer: o['customer_name'] == null || '${o['customer_name']}' == 'null'
               ? null
@@ -1275,9 +1282,12 @@ class _PosPageState extends State<PosPage> {
             const Divider(height: 20),
             _totalRow('Subtotal', formatRp(subtotal)),
             _totalRow('Pajak (${_pct(taxRate)}%)', formatRp(tax)),
-            _totalRow('Service Charge (${_pct(serviceRate)}%)',
-                formatRp(service)),
-            if (rounding > 0) _totalRow('Pembulatan', formatRp(rounding)),
+            // Pembulatan digabung ke Service di tampilan (tercatat terpisah di sistem).
+            _totalRow(
+                rounding > 0
+                    ? 'Service Charge'
+                    : 'Service Charge (${_pct(serviceRate)}%)',
+                formatRp(service + rounding)),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2032,9 +2042,10 @@ class _ReceiptDialog extends StatelessWidget {
             dashed(),
             _row('Subtotal', formatRp(receipt['subtotal'] ?? 0)),
             _row('Pajak', formatRp(receipt['tax_amount'] ?? 0)),
-            _row('Service', formatRp(receipt['service_amount'] ?? 0)),
-            if ((num.tryParse('${receipt['rounding_amount']}') ?? 0) > 0)
-              _row('Pembulatan', formatRp(receipt['rounding_amount'] ?? 0)),
+            _row(
+                'Service',
+                formatRp((num.tryParse('${receipt['service_amount']}') ?? 0) +
+                    (num.tryParse('${receipt['rounding_amount']}') ?? 0))),
             dashed(),
             _row('Total', formatRp(receipt['total'] ?? 0), bold: true),
             _row('Metode', method),
@@ -2126,10 +2137,8 @@ class _ReceiptDialog extends StatelessWidget {
     buf.writeln();
     buf.writeln('Subtotal: ${formatRp(receipt['subtotal'] ?? 0)}');
     buf.writeln('Pajak: ${formatRp(receipt['tax_amount'] ?? 0)}');
-    buf.writeln('Service: ${formatRp(receipt['service_amount'] ?? 0)}');
-    if ((num.tryParse('${receipt['rounding_amount']}') ?? 0) > 0) {
-      buf.writeln('Pembulatan: ${formatRp(receipt['rounding_amount'] ?? 0)}');
-    }
+    buf.writeln(
+        'Service: ${formatRp((num.tryParse('${receipt['service_amount']}') ?? 0) + (num.tryParse('${receipt['rounding_amount']}') ?? 0))}');
     buf.writeln('*Total: ${formatRp(receipt['total'] ?? 0)}*');
     buf.writeln();
     buf.writeln('${receipt['receipt_footer'] ?? storeFooter}');

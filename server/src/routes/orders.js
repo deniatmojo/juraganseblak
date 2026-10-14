@@ -195,9 +195,14 @@ router.post('/', async (req, res, next) => {
 
     await conn.commit();
 
+    // Waktu pembuatan (zona WIB sesi koneksi) untuk struk — sebelumnya tidak ikut
+    // di respons sehingga tanggal struk tercetak "null".
+    const [[made]] = await pool.query('SELECT created_at FROM orders WHERE id = :id', { id: orderId });
+
     res.status(201).json({
       id: orderId,
       order_no: orderNo,
+      created_at: made?.created_at ?? null,
       branch_id: branchId,
       channel,
       customer_name,

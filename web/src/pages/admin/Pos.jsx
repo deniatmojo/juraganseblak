@@ -482,8 +482,7 @@ export default function Pos() {
       '',
       `Subtotal: ${formatRp(receipt.subtotal)}`,
       `Pajak: ${formatRp(receipt.tax)}`,
-      `Service: ${formatRp(receipt.service)}`,
-      ...(receipt.rounding > 0 ? [`Pembulatan: ${formatRp(receipt.rounding)}`] : []),
+      `Service: ${formatRp(receipt.service + (receipt.rounding || 0))}`,
       `*Total: ${formatRp(receipt.total)}*`,
       `Metode: ${receipt.method}`,
       '',
@@ -661,8 +660,8 @@ export default function Pos() {
         <div className="px-6 py-5 border-t border-black/5 space-y-2.5 shrink-0">
           <div className="flex justify-between text-sm text-char/60"><span>Subtotal</span><span>{formatRp(subtotal)}</span></div>
           <div className="flex justify-between text-sm text-char/60"><span>Pajak ({Math.round(rates.tax_rate * 100)}%)</span><span>{formatRp(tax)}</span></div>
-          <div className="flex justify-between text-sm text-char/60"><span>Service Charge ({Number((rates.service_rate * 100).toFixed(2))}%)</span><span>{formatRp(service)}</span></div>
-          {rounding > 0 && <div className="flex justify-between text-sm text-char/60"><span>Pembulatan</span><span>{formatRp(rounding)}</span></div>}
+          {/* Pembulatan digabung ke Service di tampilan (tercatat terpisah di sistem) */}
+          <div className="flex justify-between text-sm text-char/60"><span>Service Charge{rounding > 0 ? '' : ` (${Number((rates.service_rate * 100).toFixed(2))}%)`}</span><span>{formatRp(service + rounding)}</span></div>
           <div className="flex justify-between items-center pt-2.5 border-t border-black/5">
             <span className="font-bold">Grand Total</span>
             <span className="font-display text-2xl text-chili">{formatRp(grandTotal)}</span>
@@ -1091,8 +1090,7 @@ export default function Pos() {
               <div className="border-t border-dashed border-black/20 pt-3 space-y-1.5 text-sm">
                 <div className="flex justify-between text-char/60"><span>Subtotal</span><span>{formatRp(receipt.subtotal)}</span></div>
                 <div className="flex justify-between text-char/60"><span>Pajak</span><span>{formatRp(receipt.tax)}</span></div>
-                <div className="flex justify-between text-char/60"><span>Service</span><span>{formatRp(receipt.service)}</span></div>
-                {receipt.rounding > 0 && <div className="flex justify-between text-char/60"><span>Pembulatan</span><span>{formatRp(receipt.rounding)}</span></div>}
+                <div className="flex justify-between text-char/60"><span>Service</span><span>{formatRp(receipt.service + (receipt.rounding || 0))}</span></div>
                 <div className="flex justify-between font-bold pt-1.5 border-t border-dashed border-black/20"><span>Total</span><span>{formatRp(receipt.total)}</span></div>
                 <div className="flex justify-between text-char/60"><span>Metode</span><span>{receipt.method}</span></div>
               </div>
@@ -1165,8 +1163,7 @@ export default function Pos() {
               <div className="th-cut"></div>
               <div className="th-row"><span>Subtotal</span><span>{formatRp(printJob.data.subtotal)}</span></div>
               <div className="th-row"><span>Pajak</span><span>{formatRp(printJob.data.tax)}</span></div>
-              <div className="th-row"><span>Service</span><span>{formatRp(printJob.data.service)}</span></div>
-              {printJob.data.rounding > 0 && <div className="th-row"><span>Pembulatan</span><span>{formatRp(printJob.data.rounding)}</span></div>}
+              <div className="th-row"><span>Service</span><span>{formatRp(printJob.data.service + (printJob.data.rounding || 0))}</span></div>
               <div className="th-row th-total"><span>TOTAL</span><span>{formatRp(printJob.data.total)}</span></div>
               <div className="th-row th-small"><span>Metode</span><span>{printJob.data.method}</span></div>
               <div className="th-cut"></div>
