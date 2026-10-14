@@ -70,7 +70,7 @@ class ThermalData {
 class ThermalPrinter {
   static const _macKey = 'thermal_printer_mac';
   static const _nameKey = 'thermal_printer_name';
-  static const _safeKey = 'thermal_printer_safe'; // true = tanpa QR & potong kertas
+  static const _modeKey = 'thermal_printer_mode'; // full | safe | plain
 
   /// Cetak ke printer Bluetooth: minta izin runtime dulu (Android 12+
   /// mewajibkan BLUETOOTH_CONNECT sebelum enumerasi/koneksi), lalu coba
@@ -169,6 +169,18 @@ class ThermalPrinter {
                       await print(context, _testData());
                     }),
                   ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.bug_report_outlined,
+                        color: AppColors.ember),
+                    title: Text('Diagnosa printer',
+                        style: AppText.body(size: 13, weight: FontWeight.w700)),
+                    subtitle: Text('Uji sambung & perintah satu per satu',
+                        style: AppText.body(size: 10, color: Colors.black45)),
+                    onTap: () => run(() async {
+                      await diagnose(context);
+                    }),
+                  ),
                   if (mac != null)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -182,6 +194,7 @@ class ThermalPrinter {
                         } catch (_) {}
                         await prefs.remove(_macKey);
                         await prefs.remove(_nameKey);
+                        await prefs.remove(_modeKey);
                       }),
                     ),
                 ]),
@@ -229,54 +242,213 @@ class ThermalPrinter {
     return connectOk || scanOk;
   }
 
+  /// Kirim struk/resep dengan tiga tingkat cadangan — printer Bluetooth murah
+  /// sering memutus koneksi saat menerima perintah ESC/POS tertentu:
+  ///   full  : gaya penuh (huruf besar/tebal, QR, potong kertas)
+  ///   safe  : tanpa QR & potong kertas
+  ///   plain : teks polos (hanya reset + baris teks) — paling kompatibel
+  /// Tingkat yang berhasil diingat untuk cetakan berikutnya.
   static Future<void> _printBytes(ThermalData raw) async {
     final data = _sanitized(raw);
     final profile = await CapabilityProfile.load();
     final gen = Generator(PaperSize.mm58, profile);
-    Uint8List build({required bool safe}) => data.kind == 'struk'
-        ? _buildStruk(gen, data, safe: safe)
-        : _buildDapur(gen, data, safe: safe);
+    Uint8List build(String tier) => switch (tier) {
+          'plain' => _buildPlain(data),
+          'safe' => data.kind == 'struk'
+              ? _buildStruk(gen, data, safe: true)
+              : _buildDapur(gen, data, safe: true),
+          _ => data.kind == 'struk'
+              ? _buildStruk(gen, data)
+              : _buildDapur(gen, data),
+        };
 
+    const tiers = ['full', 'safe', 'plain'];
     final prefs = await SharedPreferences.getInstance();
-    final preferSafe = prefs.getBool(_safeKey) ?? false;
-    var ok = await _sendChunked(build(safe: preferSafe));
-    if (!ok) {
-      // Koneksi bisa basi (printer sempat mati/keluar jangkauan): sambung ulang
-      // ke printer tersimpan lalu coba lagi.
-      try {
-        await PrintBluetoothThermal.disconnect;
-      } catch (_) {}
-      if (await _connectSaved()) {
-        await Future.delayed(const Duration(milliseconds: 400));
-        ok = await _sendChunked(build(safe: preferSafe));
+    final start = tiers.indexOf(prefs.getString(_modeKey) ?? 'full');
+    String lastFail = '';
+    for (var i = start < 0 ? 0 : start; i < tiers.length; i++) {
+      final tier = tiers[i];
+      final bytes = build(tier);
+      var r = await _sendChunked(bytes, plain: tier == 'plain');
+      if (!r.ok) {
+        // Plugin memutus koneksi setiap kali tulis gagal: sambung ulang dulu.
+        if (await _reconnect()) r = await _sendChunked(bytes, plain: tier == 'plain');
       }
-    }
-    if (!ok && !preferSafe) {
-      // Terakhir: mode aman (tanpa QR & potong kertas). Bila berhasil, diingat
-      // untuk cetakan berikutnya karena printer ini jelas tak menerima keduanya.
-      if (await PrintBluetoothThermal.connectionStatus ||
-          await _connectSaved()) {
-        ok = await _sendChunked(build(safe: true));
-        if (ok) await prefs.setBool(_safeKey, true);
+      if (r.ok) {
+        await prefs.setString(_modeKey, tier);
+        return;
       }
+      lastFail = 'mode $tier: ${r.detail}';
+      await _reconnect();
     }
-    if (!ok) {
-      throw Exception(
-          'Printer terhubung tetapi tidak menerima data — pastikan penutup kertas tertutup, kertas ada, printer dekat HP dan tidak sedang dipakai aplikasi lain, lalu coba lagi.');
-    }
+    throw Exception(
+        'Printer terhubung tetapi menolak data ($lastFail). Pastikan penutup kertas tertutup, kertas ada, dan tidak ada aplikasi printer lain yang tersambung. Coba menu Printer Bluetooth > Diagnosa printer.');
+  }
+
+  static Future<bool> _reconnect() async {
+    try {
+      await PrintBluetoothThermal.disconnect;
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 300));
+    final ok = await _connectSaved();
+    if (ok) await Future.delayed(const Duration(milliseconds: 500));
+    return ok;
   }
 
   /// Kirim per potongan kecil dengan jeda — printer Bluetooth murah (mis. RPP02N)
   /// sering memutus koneksi bila menerima data sekaligus dalam satu blok besar.
-  static Future<bool> _sendChunked(Uint8List bytes) async {
-    const chunk = 200;
+  static Future<({bool ok, String detail})> _sendChunked(Uint8List bytes,
+      {bool plain = false}) async {
+    final chunk = plain ? 64 : 200;
+    final gap = Duration(milliseconds: plain ? 80 : 40);
+    final total = (bytes.length / chunk).ceil();
     for (var i = 0; i < bytes.length; i += chunk) {
       final end = i + chunk > bytes.length ? bytes.length : i + chunk;
       final ok = await PrintBluetoothThermal.writeBytes(bytes.sublist(i, end));
-      if (!ok) return false;
-      await Future.delayed(const Duration(milliseconds: 40));
+      if (!ok) return (ok: false, detail: 'gagal kirim potongan ${i ~/ chunk + 1}/$total');
+      await Future.delayed(gap);
     }
-    return true;
+    return (ok: true, detail: '');
+  }
+
+  /// Struk/resep sebagai teks polos 32 kolom (58mm): hanya ESC @ lalu baris
+  /// teks ASCII. Tanpa ukuran huruf, tebal, QR, maupun potong kertas.
+  static Uint8List _buildPlain(ThermalData d) {
+    const w = 32;
+    final out = <String>[];
+    String center(String t) => t.length >= w ? t : (' ' * ((w - t.length) ~/ 2)) + t;
+    String row(String l, String r) {
+      final space = w - l.length - r.length;
+      if (space >= 1) return '$l${' ' * space}$r';
+      return '$l\n${' ' * (w - r.length)}$r';
+    }
+
+    final line = '-' * w;
+    if (d.kind == 'struk') {
+      out.add(center(d.storeName.isEmpty ? 'JURAGAN SEBLAK' : d.storeName));
+      if (d.storeAddress.isNotEmpty) out.add(center(d.storeAddress));
+      if (d.branch.isNotEmpty) out.add(center('Cabang: ${d.branch}'));
+      if (d.storePhone.isNotEmpty) out.add(center('Telp: ${d.storePhone}'));
+      out.add(line);
+      out.add(row('No. Struk', d.no));
+      out.add(row('Kasir', d.cashier.isEmpty ? '-' : d.cashier));
+      out.add(row('Tanggal', d.date));
+      out.add(line);
+      for (final i in d.items) {
+        if (i.role == 'topping') {
+          out.add(row('  + ${i.qty}x ${i.name}', _rp(i.price * i.qty)));
+        } else {
+          final tag = i.role == 'kuah' ? ' (P.${i.porsiNo ?? '-'})' : '';
+          out.add(row('${i.qty}x ${i.name}$tag', _rp(i.price * i.qty)));
+        }
+        if (i.note != null && i.note!.isNotEmpty) out.add('> ${i.note}');
+      }
+      out.add(line);
+      out.add(row('Subtotal', _rp(d.subtotal)));
+      out.add(row('Pajak', _rp(d.tax)));
+      out.add(row('Service', _rp(d.service)));
+      if (d.rounding > 0) out.add(row('Pembulatan', _rp(d.rounding)));
+      out.add(row('TOTAL', _rp(d.total)));
+      out.add(row('Metode', d.method));
+      out.add(line);
+      out.add(center(d.no));
+      out.add(center('LUNAS'));
+      out.add(center(d.footer.isEmpty ? 'Terima kasih!' : d.footer));
+    } else {
+      out.add(center('RESEP DAPUR'));
+      out.add(center(d.branch.isNotEmpty
+          ? d.branch
+          : (d.storeName.isEmpty ? 'Juragan Seblak' : d.storeName)));
+      out.add(line);
+      out.add(row('No.', d.no));
+      out.add(row('Waktu', d.date));
+      if (d.customer != null && d.customer!.isNotEmpty) out.add(row('Pelanggan', d.customer!));
+      if (d.table != null && d.table!.isNotEmpty) out.add(row('Meja', d.table!));
+      out.add(line);
+      for (final i in d.items) {
+        if (i.role == 'kuah') {
+          out.add('PORSI ${i.porsiNo ?? '-'}: ${i.qty}x ${i.name}');
+        } else if (i.role == 'topping') {
+          out.add('   + ${i.qty}x ${i.name}');
+        } else {
+          out.add('${i.qty}x ${i.name}');
+        }
+        if (i.note != null && i.note!.isNotEmpty) out.add('> ${i.note}');
+      }
+      out.add(line);
+      out.add(center('Untuk koki'));
+    }
+    final text = '${out.join('\n')}\n\n\n\n';
+    return Uint8List.fromList([0x1B, 0x40, ...text.codeUnits.map((c) => c > 126 || (c < 32 && c != 10) ? 0x20 : c)]);
+  }
+
+  /// Diagnosa langkah demi langkah — hasilnya tampil di layar sehingga terlihat
+  /// persis tahap mana yang ditolak printer (sambung, teks polos, huruf besar,
+  /// dorong kertas, QR, potong kertas).
+  static Future<void> diagnose(BuildContext context) async {
+    final log = <String>[];
+    final prefs = await SharedPreferences.getInstance();
+    final mac = prefs.getString(_macKey);
+    log.add('Printer tersimpan: ${mac == null ? '(belum ada)' : '${prefs.getString(_nameKey) ?? '?'} $mac'}');
+    log.add('Mode cetak tersimpan: ${prefs.getString(_modeKey) ?? 'full (default)'}');
+    final permOk = await _ensurePermissions();
+    log.add('${permOk ? 'OK   ' : 'GAGAL'} Izin Bluetooth');
+    log.add('${await PrintBluetoothThermal.bluetoothEnabled ? 'OK   ' : 'GAGAL'} Bluetooth menyala (menurut plugin)');
+    if (mac == null) {
+      log.add('Pilih printer dulu lewat menu "Pilih printer".');
+    } else {
+      var connected = await PrintBluetoothThermal.connectionStatus;
+      log.add('${connected ? 'OK   ' : 'info '} Status koneksi saat ini: ${connected ? 'tersambung' : 'belum'}');
+      if (!connected) {
+        connected = await _connectSaved();
+        log.add('${connected ? 'OK   ' : 'GAGAL'} Menyambung ke printer');
+      }
+      if (connected) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        final profile = await CapabilityProfile.load();
+        final gen = Generator(PaperSize.mm58, profile);
+        Future<void> step(String label, List<int> bytes) async {
+          if (!await PrintBluetoothThermal.connectionStatus) await _reconnect();
+          bool ok;
+          try {
+            ok = await PrintBluetoothThermal.writeBytes(bytes);
+          } catch (e) {
+            ok = false;
+          }
+          log.add('${ok ? 'OK   ' : 'GAGAL'} $label');
+          if (!ok) await _reconnect();
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+
+        await step('Reset printer (1 perintah)', [0x1B, 0x40]);
+        await step('Teks polos "TES 1"', 'TES 1 - teks polos\n'.codeUnits);
+        await step('Huruf tebal & besar', [
+          ...gen.reset(),
+          ...gen.text('TES 2 BESAR',
+              styles: const PosStyles(
+                  bold: true,
+                  height: PosTextSize.size2,
+                  width: PosTextSize.size2))
+        ]);
+        await step('Dorong kertas', gen.feed(2));
+        await step('QR code', gen.qrcode('TES-QR'));
+        await step('Potong kertas', gen.cut());
+      }
+    }
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text('Diagnosa Printer', style: AppText.display(size: 17)),
+        content: SingleChildScrollView(
+          child: SelectableText(log.join('\n'),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Tutup')),
+        ],
+      ),
+    );
   }
 
   /// Salinan data dengan teks yang sudah dibersihkan dari non-ASCII.
