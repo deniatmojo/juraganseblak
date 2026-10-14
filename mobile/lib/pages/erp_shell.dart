@@ -126,6 +126,94 @@ class _ErpShellState extends State<ErpShell> {
 
   int _notifTotal() => notifs.fold(0, (s, n) => s + n.count);
 
+  /// Ganti password akun sendiri — POST /auth/change-password (semua role).
+  Future<void> _changePassword() async {
+    final oldC = TextEditingController();
+    final newC = TextEditingController();
+    final confC = TextEditingController();
+    String? err;
+    bool busy = false;
+    bool done = false;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, setD) => AlertDialog(
+          title: Text('Ganti Password', style: AppText.display(size: 17)),
+          content: SingleChildScrollView(
+            child: done
+                ? Text(
+                    'Password berhasil diganti. Gunakan password baru saat login berikutnya.',
+                    style: AppText.body(size: 13, color: Colors.black54))
+                : Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: oldC,
+                        obscureText: true,
+                        decoration:
+                            const InputDecoration(labelText: 'Password lama')),
+                    const SizedBox(height: 10),
+                    TextField(
+                        controller: newC,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                            labelText: 'Password baru',
+                            helperText: 'Minimal 8 karakter')),
+                    const SizedBox(height: 10),
+                    TextField(
+                        controller: confC,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                            labelText: 'Ulangi password baru')),
+                    if (err != null) ...[
+                      const SizedBox(height: 10),
+                      Text(err!,
+                          style: AppText.body(
+                              size: 12,
+                              weight: FontWeight.w700,
+                              color: AppColors.chili)),
+                    ],
+                  ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d),
+                child: Text(done ? 'Selesai' : 'Batal')),
+            if (!done)
+              FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.chili, elevation: 0),
+                onPressed: busy
+                    ? null
+                    : () async {
+                        if (newC.text.length < 8) {
+                          setD(() => err = 'Password baru minimal 8 karakter');
+                          return;
+                        }
+                        if (newC.text != confC.text) {
+                          setD(() => err = 'Konfirmasi password tidak sama');
+                          return;
+                        }
+                        setD(() { busy = true; err = null; });
+                        try {
+                          await api.post('/auth/change-password', {
+                            'old_password': oldC.text,
+                            'new_password': newC.text,
+                          });
+                          setD(() { done = true; busy = false; });
+                        } catch (e) {
+                          setD(() {
+                            busy = false;
+                            err = e.toString().replaceFirst('Exception: ', '');
+                          });
+                        }
+                      },
+                child: Text(busy ? 'Menyimpan…' : 'Simpan'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _onBranchChanged() {
     if (!mounted) return;
     _loadNotifications();
@@ -641,6 +729,30 @@ class _ErpShellState extends State<ErpShell> {
           const Divider(color: AppColors.charLine, height: 1),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.key_outlined, size: 18, color: AppColors.cream),
+                label: Text('Ganti Password',
+                    style: AppText.body(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: AppColors.cream)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.charLine),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _changePassword();
+                },
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

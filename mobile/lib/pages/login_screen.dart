@@ -98,8 +98,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
                           style: AppText.body(color: AppColors.char),
-                          decoration: const InputDecoration(
-                              hintText: 'owner@juraganseblak.id'),
+                          autofillHints: const [AutofillHints.username],
+                          autocorrect: false,
+                          enableSuggestions: false,
                         ),
                         const SizedBox(height: 16),
                         Text('Password',
@@ -110,7 +111,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _password,
                           obscureText: true,
                           style: AppText.body(color: AppColors.char),
-                          decoration: const InputDecoration(hintText: '••••••••'),
+                          autofillHints: const [AutofillHints.password],
+                          onSubmitted: (_) => _loading ? null : _submit(),
                         ),
                         if (_error != null) ...[
                           const SizedBox(height: 14),
@@ -141,14 +143,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                   color: Colors.white),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Demo owner: owner@juraganseblak.id / seblak123\nDemo kasir: kasir@juraganseblak.id / kasir123',
-                          textAlign: TextAlign.center,
-                          style: AppText.body(
-                              size: 11,
-                              color: AppColors.cream.withValues(alpha: 0.4)),
                         ),
                       ],
                     ),

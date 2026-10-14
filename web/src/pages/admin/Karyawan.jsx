@@ -87,7 +87,7 @@ export default function Karyawan() {
   }
 
   return (
-    <div className="space-y-8">
+    <main className="flex-1 min-w-0 p-5 md:p-8 space-y-8">
       {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3">{error}</p>}
       {success && <p className="text-xs font-bold text-green-700 bg-green-50 rounded-xl px-4 py-3">{success}</p>}
 
@@ -315,6 +315,6 @@ export default function Karyawan() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   )
 }

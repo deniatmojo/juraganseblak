@@ -356,7 +356,7 @@ class ThermalPrinter {
       out.add(line);
       out.add(center('Struk ini dibuat oleh'));
       out.add(center('AIRA DYNAMICS'));
-      out.add(center('Sistem kasir & website bisnis'));
+      out.add(center('Solusi sistem bisnis anda'));
       out.add(center('WA/Telp: 0882-9839-1955'));
       out.add(center('www.airadynamics.com'));
     } else {
@@ -732,7 +732,7 @@ class ThermalPrinter {
     b.add(gen.text('AIRA DYNAMICS',
         styles: const PosStyles(
             align: PosAlign.center, bold: true, height: PosTextSize.size2)));
-    b.add(gen.text('Sistem kasir & website bisnis', styles: center));
+    b.add(gen.text('Solusi sistem bisnis anda', styles: center));
     b.add(gen.text('WA/Telp: 0882-9839-1955', styles: center));
     b.add(gen.text('www.airadynamics.com', styles: center));
     // Mode aman: tanpa perintah potong (sebagian printer 58mm tanpa pemotong

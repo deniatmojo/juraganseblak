@@ -115,6 +115,8 @@ class _KeuanganPageState extends State<KeuanganPage>
         TabBar(
           controller: _tab,
           isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           labelColor: AppColors.chili,
           unselectedLabelColor: Colors.black45,
           indicatorColor: AppColors.chili,

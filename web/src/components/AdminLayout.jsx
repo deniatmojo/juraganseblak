@@ -3,6 +3,7 @@ import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-do
 import { getCurrentUser, logout, isAllowed, ROLE_HOME } from '../auth'
 import { api } from '../api'
 import { getBranch, setBranch } from '../branch'
+import ChangePasswordModal from './ChangePasswordModal'
 
 const headerMeta = {
   '/erp': { title: 'Dashboard', subtitle: 'Ringkasan operasional Juragan Seblak hari ini' },
@@ -102,6 +103,7 @@ export default function AdminLayout() {
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
   const [branches, setBranches] = useState([])
+  const [pwOpen, setPwOpen] = useState(false)
   const [branch, setBranchState] = useState(getBranch)
   // Admin yang dikunci ke satu cabang tidak bisa memilih; kasir ikut cabang shift-nya.
   const lockedBranch = user?.role === 'admin' ? user.branch_id : null
@@ -214,7 +216,13 @@ export default function AdminLayout() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-char-line shrink-0">
+        <div className="p-4 border-t border-char-line shrink-0 space-y-1">
+          <button onClick={() => { setSidebarOpen(false); setPwOpen(true) }} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-semibold text-sm text-cream/60 hover:text-white hover:bg-char-soft transition-colors">
+            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            Ganti Password
+          </button>
           <button onClick={logoutSession} className="w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-semibold text-sm text-cream/60 hover:text-white hover:bg-char-soft transition-colors">
             <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -232,27 +240,27 @@ export default function AdminLayout() {
 
       {/* MAIN */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="h-20 bg-white border-b border-black/5 flex items-center justify-between px-5 md:px-8 sticky top-0 z-20 shrink-0">
-          <div className="flex items-center gap-4">
+        <header className="h-20 bg-white border-b border-black/5 flex items-center justify-between gap-2 px-4 md:px-8 sticky top-0 z-20 shrink-0">
+          <div className="flex items-center gap-3 md:gap-4 min-w-0">
             <button onClick={() => setSidebarOpen(true)} aria-label="Buka menu" className="lg:hidden p-2 -ml-2 text-char">
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <div>
-              <h1 className="font-display text-2xl md:text-3xl uppercase leading-none">{meta.title}</h1>
+            <div className="min-w-0">
+              <h1 className="font-display text-xl sm:text-2xl md:text-3xl uppercase leading-none truncate">{meta.title}</h1>
               <p className="text-xs text-char/50 mt-1 hidden sm:block">{meta.subtitle}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 md:gap-5">
+          <div className="flex items-center gap-2 md:gap-5 shrink-0">
             {canPickBranch && branches.length > 0 && (
               <label className="flex items-center gap-2 text-xs font-bold text-char/60">
                 <span className="hidden md:inline">Cabang</span>
                 <select
                   value={branch}
                   onChange={(e) => changeBranch(e.target.value)}
-                  className="bg-cream border border-black/10 rounded-full px-3 py-2 text-xs font-bold text-char focus:outline-none focus:ring-2 focus:ring-chili/30"
+                  className="bg-cream border border-black/10 rounded-full px-3 py-2 text-xs font-bold text-char max-w-[118px] sm:max-w-none focus:outline-none focus:ring-2 focus:ring-chili/30"
                 >
                   <option value="all">Semua cabang</option>
                   {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -260,7 +268,7 @@ export default function AdminLayout() {
               </label>
             )}
             {lockedBranch && (
-              <span className="text-xs font-bold text-chili bg-red-50 px-3 py-1.5 rounded-full">
+              <span className="text-xs font-bold text-chili bg-red-50 px-3 py-1.5 rounded-full max-w-[130px] truncate">
                 {branches.find((b) => b.id === lockedBranch)?.name ?? 'Cabang'}
               </span>
             )}
@@ -309,12 +317,13 @@ export default function AdminLayout() {
                 </div>
               )}
             </div>
-            <div className="w-10 h-10 rounded-full bg-chili/15 grid place-items-center font-bold text-chili shrink-0">
+            <div className="hidden sm:grid w-10 h-10 rounded-full bg-chili/15 place-items-center font-bold text-chili shrink-0">
               {(user?.name ?? '?').charAt(0).toUpperCase()}
             </div>
           </div>
         </header>
 
+        {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
         <Outlet key={canPickBranch ? branch : 'fixed'} context={{ user, branches, branch: canPickBranch ? branch : String(lockedBranch ?? '') }} />
       </div>
     </div>

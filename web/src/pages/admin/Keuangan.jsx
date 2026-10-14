@@ -122,7 +122,7 @@ export default function Keuangan() {
   }
 
   return (
-    <main className="flex-1 p-5 md:p-8 space-y-7">
+    <div className="space-y-7">
       {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3">{error}</p>}
 
       {/* DATE FILTER */}
@@ -351,6 +351,6 @@ export default function Keuangan() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   )
 }

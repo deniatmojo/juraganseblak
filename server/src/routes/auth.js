@@ -25,6 +25,25 @@ router.post('/login', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/auth/change-password  { old_password, new_password }
+// Semua role boleh mengganti password akunnya sendiri (wajib tahu password lama).
+const WEAK = new Set(['12345678', '123456789', 'password', 'seblak123', 'kasir123', 'admin123', 'owner123', 'juragan123', 'qwertyui']);
+router.post('/change-password', requireAuth, async (req, res, next) => {
+  try {
+    const { old_password, new_password } = req.body || {};
+    if (!old_password || !new_password) return res.status(400).json({ error: 'Password lama dan baru wajib diisi' });
+    if (String(new_password).length < 8) return res.status(400).json({ error: 'Password baru minimal 8 karakter' });
+    if (WEAK.has(String(new_password).toLowerCase())) return res.status(400).json({ error: 'Password baru terlalu mudah ditebak, pilih yang lain' });
+    if (new_password === old_password) return res.status(400).json({ error: 'Password baru harus berbeda dari yang lama' });
+    const [[user]] = await pool.query('SELECT id, password_hash FROM users WHERE id = :id AND is_active = 1', { id: req.user.id });
+    if (!user || !bcrypt.compareSync(String(old_password), user.password_hash)) {
+      return res.status(400).json({ error: 'Password lama salah' });
+    }
+    await pool.query('UPDATE users SET password_hash = :h WHERE id = :id', { h: bcrypt.hashSync(String(new_password), 10), id: user.id });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // GET /api/auth/me — validasi token & ambil profil
 router.get('/me', requireAuth, (req, res) => {
   res.json(req.user);

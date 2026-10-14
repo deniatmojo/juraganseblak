@@ -57,7 +57,7 @@ export default function Login() {
                 type="email"
                 id="email"
                 required
-                placeholder="owner@juraganseblak.id"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={inputCls}
@@ -70,7 +70,7 @@ export default function Login() {
                 type="password"
                 id="password"
                 required
-                placeholder="••••••••"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputCls}
@@ -88,11 +88,6 @@ export default function Login() {
             >
               {loading ? 'Memeriksa...' : 'Masuk ke ERP'}
             </button>
-
-            <p className="text-center text-xs text-cream/40">
-              Demo owner: <span className="text-cream/70 font-semibold">owner@juraganseblak.id</span> / <span className="text-cream/70 font-semibold">seblak123</span>
-              &nbsp;&middot;&nbsp; Demo kasir: <span className="text-cream/70 font-semibold">kasir@juraganseblak.id</span> / <span className="text-cream/70 font-semibold">kasir123</span>
-            </p>
           </form>
         </div>
       </main>
