@@ -295,20 +295,21 @@ class ThermalPrinter {
     return ok;
   }
 
-  /// Kirim per potongan kecil dengan jeda — printer Bluetooth murah (mis. RPP02N)
-  /// sering memutus koneksi bila menerima data sekaligus dalam satu blok besar.
+  /// Kirim data ke printer.
+  ///
+  /// PENTING: plugin print_bluetooth_thermal membaca argumen dengan
+  /// `call.arguments as? List<Int>`. `Uint8List` dikirim platform channel sebagai
+  /// ByteArray, bukan List — plugin lalu langsung mengembalikan false TANPA
+  /// mengirim apa pun (printer diam). Karena itu data HARUS diubah ke
+  /// List<int> biasa. Plugin sendiri memecah data per 16KB dan menaruh satu
+  /// baris kosong di awal tiap panggilan, jadi dikirim sekali (bukan dipotong
+  /// kecil — pemotongan bisa membelah perintah ESC/POS dan menambah baris kosong).
   static Future<({bool ok, String detail})> _sendChunked(Uint8List bytes,
       {bool plain = false}) async {
-    final chunk = plain ? 64 : 200;
-    final gap = Duration(milliseconds: plain ? 80 : 40);
-    final total = (bytes.length / chunk).ceil();
-    for (var i = 0; i < bytes.length; i += chunk) {
-      final end = i + chunk > bytes.length ? bytes.length : i + chunk;
-      final ok = await PrintBluetoothThermal.writeBytes(bytes.sublist(i, end));
-      if (!ok) return (ok: false, detail: 'gagal kirim potongan ${i ~/ chunk + 1}/$total');
-      await Future.delayed(gap);
-    }
-    return (ok: true, detail: '');
+    final ok = await PrintBluetoothThermal.writeBytes(List<int>.from(bytes));
+    return ok
+        ? (ok: true, detail: '')
+        : (ok: false, detail: 'plugin menolak ${bytes.length} byte');
   }
 
   /// Struk/resep sebagai teks polos 32 kolom (58mm): hanya ESC @ lalu baris
@@ -411,7 +412,7 @@ class ThermalPrinter {
           if (!await PrintBluetoothThermal.connectionStatus) await _reconnect();
           bool ok;
           try {
-            ok = await PrintBluetoothThermal.writeBytes(bytes);
+            ok = await PrintBluetoothThermal.writeBytes(List<int>.from(bytes));
           } catch (e) {
             ok = false;
           }
