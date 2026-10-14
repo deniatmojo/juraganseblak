@@ -298,47 +298,108 @@ class ThermalPrinter {
       devices = [];
     }
     if (!context.mounted) return false;
+    // Perangkat bernama mirip printer termal ditaruh paling atas; sisanya
+    // (speaker, headset, jam tangan) tetap ada di bawah untuk jaga-jaga.
+    final saved = (await SharedPreferences.getInstance()).getString(_macKey);
+    final sorted = [...devices]..sort((x, y) {
+        int rank(BluetoothInfo d) =>
+            d.macAdress == saved ? 0 : (_looksLikePrinter(d.name) ? 1 : 2);
+        final r = rank(x).compareTo(rank(y));
+        return r != 0 ? r : x.name.toLowerCase().compareTo(y.name.toLowerCase());
+      });
+    if (!context.mounted) return false;
     final mac = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (sheetCtx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Pilih Printer Bluetooth',
-                  style: AppText.display(size: 17)),
-              const SizedBox(height: 4),
-              Text(
-                  devices.isEmpty
-                      ? 'Tidak ada printer terpasang — pastikan Bluetooth menyala dan printer sudah di-pairing di pengaturan Bluetooth HP.'
-                      : 'Printer akan diingat untuk cetakan berikutnya.',
-                  style: AppText.body(size: 11, color: Colors.black45)),
-            ]),
-          ),
-          const Divider(height: 1),
-          for (final d in devices)
-            ListTile(
-              leading:
-                  const Icon(Icons.print_outlined, color: AppColors.chili),
-              title: Text(d.name,
-                  style: AppText.body(size: 13, weight: FontWeight.w700)),
-              subtitle: Text(d.macAdress,
-                  style: AppText.body(size: 10, color: Colors.black45)),
-              onTap: () => Navigator.pop(sheetCtx, d.macAdress),
+      builder: (sheetCtx) {
+        var query = '';
+        return StatefulBuilder(builder: (ctx, setS) {
+          final shown = sorted
+              .where((d) =>
+                  query.isEmpty ||
+                  d.name.toLowerCase().contains(query) ||
+                  d.macAdress.toLowerCase().contains(query))
+              .toList();
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.85),
+              child: Padding(
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Pilih Printer Bluetooth',
+                              style: AppText.display(size: 17)),
+                          const SizedBox(height: 4),
+                          Text(
+                              devices.isEmpty
+                                  ? 'Tidak ada perangkat terpasang — pastikan Bluetooth menyala dan printer sudah di-pairing di pengaturan Bluetooth HP.'
+                                  : '${devices.length} perangkat terpasang. Printer (nama mis. RPP, MTP, PT, Printer) ada paling atas — geser untuk melihat lainnya. Printer akan diingat untuk cetakan berikutnya.',
+                              style: AppText.body(size: 11, color: Colors.black45)),
+                          if (devices.length > 5) ...[
+                            const SizedBox(height: 10),
+                            TextField(
+                              onChanged: (v) =>
+                                  setS(() => query = v.trim().toLowerCase()),
+                              decoration: const InputDecoration(
+                                  isDense: true,
+                                  prefixIcon: Icon(Icons.search, size: 18),
+                                  hintText: 'Cari nama printer…'),
+                            ),
+                          ],
+                        ]),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final d in shown)
+                          ListTile(
+                            leading: Icon(
+                                _looksLikePrinter(d.name)
+                                    ? Icons.print_outlined
+                                    : Icons.bluetooth,
+                                color: _looksLikePrinter(d.name)
+                                    ? AppColors.chili
+                                    : Colors.black38),
+                            title: Text(d.name,
+                                style: AppText.body(
+                                    size: 13, weight: FontWeight.w700)),
+                            subtitle: Text(
+                                '${d.macAdress}${d.macAdress == saved ? ' · printer tersimpan' : _looksLikePrinter(d.name) ? ' · kemungkinan printer' : ''}',
+                                style: AppText.body(
+                                    size: 10,
+                                    color: _looksLikePrinter(d.name)
+                                        ? AppColors.chili
+                                        : Colors.black45)),
+                            onTap: () => Navigator.pop(sheetCtx, d.macAdress),
+                          ),
+                        if (shown.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Center(
+                                child: TextButton(
+                                    onPressed: () => Navigator.pop(sheetCtx),
+                                    child: const Text('Tutup'))),
+                          ),
+                      ],
+                    ),
+                  ),
+                ]),
+              ),
             ),
-          if (devices.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                  child: TextButton(
-                      onPressed: () => Navigator.pop(sheetCtx),
-                      child: const Text('Tutup'))),
-            ),
-        ]),
-      ),
+          );
+        });
+      },
     );
     if (mac == null) return false;
     final prefs = await SharedPreferences.getInstance();
@@ -351,6 +412,13 @@ class ThermalPrinter {
       return false;
     }
   }
+
+  /// Tebakan dari nama: printer termal portabel umumnya bernama RPP02N, MTP-II,
+  /// PT-210, MPT-3, "Bluetooth Printer", dst.
+  static bool _looksLikePrinter(String name) => RegExp(
+          r'(rpp|mtp|mpt|pt-?\d|printer|print|thermal|pos[-_ ]?\d|zj-?\d|rp\d|xp-|gp-|hm-|bt-?print|kprinter|sunmi|epson|tm-|spp)',
+          caseSensitive: false)
+      .hasMatch(name);
 
   static String _rp(num n) =>
       'Rp ${n.round().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => '.')}';
