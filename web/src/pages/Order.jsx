@@ -243,9 +243,6 @@ export default function Order() {
             JURAGAN <span className="text-chili">SEBLAK</span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link to="/track" className="text-cream/70 hover:text-ember text-sm font-semibold transition-colors">
-              Lacak Pesanan
-            </Link>
             <Link to="/" className="text-cream/70 hover:text-ember text-sm font-semibold flex items-center gap-1.5 transition-colors">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
               Kembali
