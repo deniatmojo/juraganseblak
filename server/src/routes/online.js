@@ -324,9 +324,9 @@ router.get('/track/:orderNo', async (req, res, next) => {
   try {
     const code = String(req.query.code || '');
     const phone = String(req.query.phone || '').replace(/\D/g, '');
-    if (!code && phone.length < 4) {
-      return res.status(400).json({ error: 'Kode pelacakan atau nomor HP wajib diisi' });
-    }
+    // Tanpa kode & HP → tampilan RINGKAS (hanya nomor pesanan): status & item tanpa
+    // data pribadi, karena nomor pesanan berurutan dan mudah ditebak.
+    const limited = !code && phone.length < 4;
     const [[order]] = await pool.query(
       `SELECT id, order_no, channel, customer_name, customer_phone, order_type,
               schedule_at, table_no, delivery_address, customer_note,
@@ -340,8 +340,16 @@ router.get('/track/:orderNo', async (req, res, next) => {
     }
     const codeOk = order.track_code && code && code === order.track_code;
     const phoneOk = phone.length >= 4 && order.customer_phone?.replace(/\D/g, '').endsWith(phone);
-    if (!codeOk && !phoneOk) {
+    if (!limited && !codeOk && !phoneOk) {
       return res.status(404).json({ error: 'Pesanan tidak ditemukan' });
+    }
+    if (limited) {
+      const first = String(order.customer_name || '').trim().split(/\s+/)[0] || '';
+      order.customer_name = first ? `${first.charAt(0)}${'*'.repeat(Math.min(first.length - 1, 5))}` : 'Pelanggan';
+      order.customer_phone = null;
+      order.delivery_address = null;
+      order.customer_note = null;
+      order.track_code = null;
     }
     const [items] = await pool.query(
       'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note, oi.porsi_no, oi.item_role FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id ORDER BY oi.id',
@@ -349,6 +357,7 @@ router.get('/track/:orderNo', async (req, res, next) => {
     );
     res.json({
       ...order,
+      limited,
       subtotal: Number(order.subtotal), tax_amount: Number(order.tax_amount),
       service_amount: Number(order.service_amount), rounding_amount: Number(order.rounding_amount), total: Number(order.total),
       items: items.map((i) => ({ ...i, unit_price: Number(i.unit_price) })),

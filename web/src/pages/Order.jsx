@@ -147,9 +147,15 @@ export default function Order() {
   // Lacak pesanan dari kode pelacakan (mis. setelah tab tertutup / HP di-refresh).
   const lookupTrack = async (e) => {
     e.preventDefault()
-    const code = trackInput.trim().toLowerCase()
+    const raw = trackInput.trim()
+    // Nomor pesanan (JS-20261015-0001): tampilan ringkas tanpa data pribadi.
+    if (/^js-\d{8}-\d{4}$/i.test(raw)) {
+      navigate(`/track/${raw.toUpperCase()}`)
+      return
+    }
+    const code = raw.toLowerCase()
     if (!/^[0-9a-f]{8}$/.test(code)) {
-      setTrackError('Kode pelacakan terdiri dari 8 karakter (angka dan huruf a-f)')
+      setTrackError('Masukkan kode pelacakan (8 karakter) atau nomor pesanan (JS-…)')
       return
     }
     setTrackBusy(true)
@@ -275,16 +281,16 @@ export default function Order() {
           {!tableMode && (
             <form onSubmit={lookupTrack} className="max-w-xl mx-auto mb-8 bg-white rounded-2xl border border-black/5 shadow-sm p-4 md:p-5">
               <p className="text-sm font-bold mb-0.5">Sudah memesan? Lacak pesananmu</p>
-              <p className="text-xs text-char/50 mb-3">Tempel kode pelacakan yang kamu dapat setelah memesan.</p>
+              <p className="text-xs text-char/50 mb-3">Tempel kode pelacakan atau nomor pesanan (JS-…) yang kamu dapat setelah memesan.</p>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={trackInput}
                   onChange={(e) => { setTrackInput(e.target.value); setTrackError('') }}
-                  placeholder="mis. dae94e27"
+                  placeholder="mis. dae94e27 atau JS-20261015-0001"
                   autoComplete="off"
                   autoCapitalize="none"
-                  maxLength={8}
+                  maxLength={20}
                   className="flex-1 min-w-0 border border-black/15 rounded-xl px-4 py-2.5 text-sm font-mono"
                 />
                 <button type="submit" disabled={trackBusy} className="shrink-0 bg-char hover:bg-char-soft disabled:opacity-50 text-white font-bold text-sm px-5 rounded-xl transition-colors">

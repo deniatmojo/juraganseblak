@@ -98,8 +98,13 @@ export default function Track() {
       }
       return
     }
-    if (!input || lookup.hp.replace(/\D/g, '').length < 4) {
-      setError('Isi kode pelacakan, atau nomor pesanan beserta nomor HP yang dipakai saat memesan')
+    if (!input) {
+      setError('Isi kode pelacakan atau nomor pesanan')
+      return
+    }
+    // Nomor pesanan saja → tampilan ringkas; dengan nomor HP → detail lengkap.
+    if (lookup.hp.replace(/\D/g, '').length < 4) {
+      navigate(`/track/${encodeURIComponent(input.toUpperCase())}`)
       return
     }
     load(input, { phone: lookup.hp })
@@ -142,14 +147,14 @@ export default function Track() {
               <div className="text-center">
                 <p className="text-chili font-bold text-sm mb-2">Lacak Pesanan</p>
                 <h1 className="font-display text-3xl uppercase">Pesananmu Sampai Mana?</h1>
-                <p className="mt-2 text-char/60 text-sm">Cukup masukkan kode pelacakan, atau nomor pesanan dan nomor HP yang dipakai saat memesan.</p>
+                <p className="mt-2 text-char/60 text-sm">Masukkan kode pelacakan, atau nomor pesanan (JS-…). Tambahkan nomor HP untuk melihat detail lengkap.</p>
               </div>
               <div>
                 <label htmlFor="no" className="block text-sm font-bold mb-1.5">Kode pelacakan atau nomor pesanan</label>
                 <input type="text" id="no" placeholder="mis. dae94e27 atau JS-20260927-0001" value={lookup.no} onChange={(e) => setLookup((p) => ({ ...p, no: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" required />
               </div>
               <div>
-                <label htmlFor="hp" className="block text-sm font-bold mb-1.5">Nomor HP saat memesan <span className="font-normal text-char/40">(tidak perlu bila memakai kode pelacakan)</span></label>
+                <label htmlFor="hp" className="block text-sm font-bold mb-1.5">Nomor HP saat memesan <span className="font-normal text-char/40">(opsional — untuk detail lengkap)</span></label>
                 <input type="tel" id="hp" placeholder="08xx-xxxx-xxxx" value={lookup.hp} onChange={(e) => setLookup((p) => ({ ...p, hp: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" />
               </div>
               <button type="submit" className="w-full bg-chili hover:bg-chili-dark text-white font-bold py-4 rounded-full transition-colors">Lacak Pesanan</button>
@@ -164,6 +169,11 @@ export default function Track() {
 
           {order && !loading && (
             <div className="space-y-6">
+              {order.limited && (
+                <p className="bg-white border border-black/10 rounded-2xl px-5 py-3 text-xs text-char/60">
+                  Tampilan ringkas (dicari lewat nomor pesanan). Data pribadi disembunyikan. Untuk detail lengkap, lacak memakai kode pelacakan atau nomor HP saat memesan.
+                </p>
+              )}
               {/* KEPALA PESANAN */}
               <div className="bg-char text-cream rounded-2xl p-6 md:p-8">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
