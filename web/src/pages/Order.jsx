@@ -25,6 +25,10 @@ export default function Order() {
   const [portions, setPortions] = useState([])
   const [draft, setDraft] = useState({ kuahId: null, toppings: {}, qty: 1, note: '' })
   const [draftError, setDraftError] = useState('')
+  const [justAdded, setJustAdded] = useState('')
+  const [trackInput, setTrackInput] = useState('')
+  const [trackError, setTrackError] = useState('')
+  const [trackBusy, setTrackBusy] = useState(false)
   const [form, setForm] = useState({ nama: '', noHp: '', tanggal: '', jam: '', alamat: '', catatan: '' })
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -68,11 +72,8 @@ export default function Order() {
   const isDelivery = orderType === 'delivery'
 
   // Total satu porsi = (harga kuah + total topping) × jumlah porsi.
-  const portionTotal = (p) => {
-    const kuah = kuahItems.find((k) => k.id === p.kuahId)
-    if (!kuah) return 0
-    return (kuah.price + p.toppings.reduce((s, t) => s + t.price * t.qty, 0)) * p.qty
-  }
+  const portionTotal = (p) =>
+    (p.kuah.price + p.toppings.reduce((s, t) => s + t.price * t.qty, 0)) * p.qty
 
   const cartItems = menu.filter((m) => cart[m.id] > 0).map((m) => ({ ...m, qty: cart[m.id] }))
   const subtotal =
@@ -140,7 +141,30 @@ export default function Order() {
     ])
     setDraft({ kuahId: null, toppings: {}, qty: 1, note: '' })
     setDraftError('')
+    setJustAdded(`Porsi ${portions.length + 1} (${kuah.name}) masuk keranjang. Mau tambah porsi lain? Pilih jenis kuah lagi di bawah.`)
   }
+
+  // Lacak pesanan dari kode pelacakan (mis. setelah tab tertutup / HP di-refresh).
+  const lookupTrack = async (e) => {
+    e.preventDefault()
+    const code = trackInput.trim().toLowerCase()
+    if (!/^[0-9a-f]{8}$/.test(code)) {
+      setTrackError('Kode pelacakan terdiri dari 8 karakter (angka dan huruf a-f)')
+      return
+    }
+    setTrackBusy(true)
+    setTrackError('')
+    try {
+      const r = await api.get(`/online/track-code/${code}`)
+      navigate(`/track/${r.order_no}?code=${code}`)
+    } catch (err) {
+      setTrackError(err.message)
+      setTrackBusy(false)
+    }
+  }
+  const savedOrders = (() => {
+    try { return JSON.parse(localStorage.getItem('js_my_orders') || '[]').slice(0, 3) } catch { return [] }
+  })()
   const removePortion = (idx) => setPortions((prev) => prev.filter((_, i) => i !== idx))
 
   const handleChange = (e) => {
@@ -251,6 +275,40 @@ export default function Order() {
             </p>
           </div>
 
+          {!tableMode && (
+            <form onSubmit={lookupTrack} className="max-w-xl mx-auto mb-8 bg-white rounded-2xl border border-black/5 shadow-sm p-4 md:p-5">
+              <p className="text-sm font-bold mb-0.5">Sudah memesan? Lacak pesananmu</p>
+              <p className="text-xs text-char/50 mb-3">Tempel kode pelacakan yang kamu dapat setelah memesan.</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={trackInput}
+                  onChange={(e) => { setTrackInput(e.target.value); setTrackError('') }}
+                  placeholder="mis. dae94e27"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  maxLength={8}
+                  className="flex-1 min-w-0 border border-black/15 rounded-xl px-4 py-2.5 text-sm font-mono"
+                />
+                <button type="submit" disabled={trackBusy} className="shrink-0 bg-char hover:bg-char-soft disabled:opacity-50 text-white font-bold text-sm px-5 rounded-xl transition-colors">
+                  {trackBusy ? 'Mencari…' : 'Lacak'}
+                </button>
+              </div>
+              {trackError && <p className="text-xs font-bold text-chili mt-2" role="alert">{trackError}</p>}
+              {savedOrders.length > 0 && (
+                <p className="text-xs text-char/50 mt-3">
+                  Pesanan terakhir di perangkat ini:{' '}
+                  {savedOrders.map((o, i) => (
+                    <span key={o.order_no}>
+                      {i > 0 && ' · '}
+                      <Link to={`/track/${o.order_no}?code=${o.code}`} className="font-semibold text-chili hover:underline">{o.order_no}</Link>
+                    </span>
+                  ))}
+                </p>
+              )}
+            </form>
+          )}
+
           {tableMode && table && (
             <div className="max-w-xl mx-auto mb-6 bg-chili/10 border border-chili/30 rounded-2xl px-5 py-4 flex items-center gap-4">
               <span className="text-3xl">🪑</span>
@@ -351,6 +409,7 @@ export default function Order() {
                   </div>
 
                   {draftError && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-2.5 mb-3">{draftError}</p>}
+                  {justAdded && !draftError && <p className="text-xs font-bold text-green-700 bg-green-50 rounded-xl px-4 py-2.5 mb-3">✓ {justAdded}</p>}
 
                   <div className="flex items-center gap-4">
                     <div className="shrink-0">
@@ -358,7 +417,7 @@ export default function Order() {
                       <p className="font-display text-xl text-chili">{rupiah(draftTotal())}</p>
                     </div>
                     <button type="button" onClick={addPortion} className="flex-1 bg-chili hover:bg-chili-dark text-white font-bold py-3.5 rounded-full text-sm transition-colors">
-                      Tambah Porsi ke Keranjang
+                      {draft.kuahId ? 'Tambah Porsi ke Keranjang' : 'Pilih jenis kuah dulu'}
                     </button>
                   </div>
                 </section>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
 const rupiah = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID')
@@ -44,6 +44,7 @@ function waNumber(phone) {
 
 export default function Track() {
   const { orderNo } = useParams()
+  const navigate = useNavigate()
   const [search, setSearch] = useSearchParams()
   const [order, setOrder] = useState(null)
   const [store, setStore] = useState(null)
@@ -84,13 +85,24 @@ export default function Track() {
     return () => clearInterval(timer)
   }, [order, error, search, load])
 
-  const submitLookup = (e) => {
+  const submitLookup = async (e) => {
     e.preventDefault()
-    if (!lookup.no.trim() || lookup.hp.replace(/\D/g, '').length < 4) {
-      setError('Isi nomor pesanan dan nomor HP yang dipakai saat memesan')
+    const input = lookup.no.trim()
+    // Cukup kode pelacakan (8 karakter heksadesimal) — tanpa nomor HP.
+    if (/^[0-9a-f]{8}$/i.test(input)) {
+      try {
+        const r = await api.get(`/online/track-code/${input.toLowerCase()}`)
+        navigate(`/track/${r.order_no}?code=${input.toLowerCase()}`)
+      } catch (err) {
+        setError(err.message)
+      }
       return
     }
-    load(lookup.no.trim(), { phone: lookup.hp })
+    if (!input || lookup.hp.replace(/\D/g, '').length < 4) {
+      setError('Isi kode pelacakan, atau nomor pesanan beserta nomor HP yang dipakai saat memesan')
+      return
+    }
+    load(input, { phone: lookup.hp })
   }
 
   const isPending = order?.status === 'pending'
@@ -130,15 +142,15 @@ export default function Track() {
               <div className="text-center">
                 <p className="text-chili font-bold text-sm mb-2">Lacak Pesanan</p>
                 <h1 className="font-display text-3xl uppercase">Pesananmu Sampai Mana?</h1>
-                <p className="mt-2 text-char/60 text-sm">Masukkan nomor pesanan dan nomor HP yang dipakai saat memesan.</p>
+                <p className="mt-2 text-char/60 text-sm">Cukup masukkan kode pelacakan, atau nomor pesanan dan nomor HP yang dipakai saat memesan.</p>
               </div>
               <div>
-                <label htmlFor="no" className="block text-sm font-bold mb-1.5">Nomor Pesanan</label>
-                <input type="text" id="no" placeholder="JS-20260927-0001" value={lookup.no} onChange={(e) => setLookup((p) => ({ ...p, no: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" required />
+                <label htmlFor="no" className="block text-sm font-bold mb-1.5">Kode pelacakan atau nomor pesanan</label>
+                <input type="text" id="no" placeholder="mis. dae94e27 atau JS-20260927-0001" value={lookup.no} onChange={(e) => setLookup((p) => ({ ...p, no: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" required />
               </div>
               <div>
-                <label htmlFor="hp" className="block text-sm font-bold mb-1.5">Nomor HP saat memesan</label>
-                <input type="tel" id="hp" placeholder="08xx-xxxx-xxxx" value={lookup.hp} onChange={(e) => setLookup((p) => ({ ...p, hp: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" required />
+                <label htmlFor="hp" className="block text-sm font-bold mb-1.5">Nomor HP saat memesan <span className="font-normal text-char/40">(tidak perlu bila memakai kode pelacakan)</span></label>
+                <input type="tel" id="hp" placeholder="08xx-xxxx-xxxx" value={lookup.hp} onChange={(e) => setLookup((p) => ({ ...p, hp: e.target.value }))} className="w-full border border-black/15 rounded-xl px-4 py-3 text-sm" />
               </div>
               <button type="submit" className="w-full bg-chili hover:bg-chili-dark text-white font-bold py-4 rounded-full transition-colors">Lacak Pesanan</button>
             </form>
@@ -259,7 +271,7 @@ export default function Track() {
                               Porsi {g.no} · {g.qty}× {g.kuah.name}
                               {g.note && <span className="block text-xs font-normal text-char/50">↳ {g.note}</span>}
                             </span>
-                            <span className="font-semibold shrink-0">{rupiah(g.kuah.unit_price * g.qty)}</span>
+                            <span className="font-semibold shrink-0">{rupiah(g.kuah.unit_price * g.qty + g.toppings.reduce((s, t) => s + t.unit_price * t.qty, 0))}</span>
                           </div>
                         ) : (
                           <p className="font-semibold">Porsi {g.no}</p>

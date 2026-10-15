@@ -302,6 +302,21 @@ router.post('/orders', async (req, res, next) => {
   }
 });
 
+// GET /api/online/track-code/:code — cari nomor pesanan dari KODE PELACAKAN saja
+// (pelanggan yang tab-nya tertutup/HP-nya refresh cukup menempel kodenya).
+// Hanya mengembalikan order_no; detail tetap lewat /track/:orderNo?code=.
+router.get('/track-code/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}$/.test(code)) return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan' });
+    const [[row]] = await pool.query(
+      "SELECT order_no FROM orders WHERE channel = 'online' AND track_code = :c LIMIT 1", { c: code }
+    );
+    if (!row) return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan. Periksa lagi kodenya.' });
+    res.json({ order_no: row.order_no, code });
+  } catch (e) { next(e); }
+});
+
 // GET /api/online/track/:orderNo?code=xx atau ?phone=08xxx — lacak pesanan
 // dari halaman publik. Akses diterima bila kode pelacakan cocok ATAU nomor HP
 // cocok (dipakai pelanggan yang kehilangan kode pelacakannya).
