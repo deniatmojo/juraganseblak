@@ -20,3 +20,15 @@ Project ini punya knowledge graph via MCP `graphify` (data di `graphify-out/grap
 2. Baca file penuh **hanya** jika graph tidak menjawab, atau saat akan mengedit file tersebut.
 3. Di awal session baru, panggil `mcp__graphify__graph_stats` sekali untuk memastikan MCP aktif.
 4. Setelah perubahan code besar, ingatkan user untuk rebuild graph (lihat `GRAPHIFY_SETUP.md` / `graphify-report.bat`) agar graph tetap sinkron.
+
+## Dokumentasi teknis (docs/)
+
+- `docs/CATATAN-PRINTER-BLUETOOTH.md` — masalah cetak printer termal Bluetooth (Flutter),
+  penyebab (`Uint8List` vs `List<int>` pada plugin), solusi, dan checklist untuk aplikasi lain.
+  Baca sebelum menyentuh `mobile/lib/services/thermal_printer.dart`.
+- Build APK di Windows butuh `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=D:\jtmp` (lihat bagian 7 catatan di atas).
+
+## Graphify — selalu aktif
+
+Setelah mengubah kode, jalankan `graphify update .` (tanpa biaya API) lalu commit hasilnya bila perlu.
+Untuk dokumen/gambar baru (md, dll.) gunakan `/graphify --update` di asisten AI.
