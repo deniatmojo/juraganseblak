@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,7 +10,7 @@ import '../widgets/common.dart';
 
 /// Absensi — menyalin web/src/pages/admin/Absensi.jsx + CabangManager.jsx:
 /// clock in/out GPS, rekap pribadi (karyawan) vs semua (admin), set status,
-/// Pengaturan Jadwal Kerja owner (jam masuk via ClockDial + durasi), dan
+/// Pengaturan Jadwal Kerja owner (jam masuk via pemilih +/- + durasi), dan
 /// kelola Lokasi Absen per Cabang (link Google Maps + "Lokasi saya").
 class AbsensiPage extends StatefulWidget {
   final AppUser user;
@@ -319,25 +318,18 @@ class _AbsensiPageState extends State<AbsensiPage> {
     }
   }
 
-  /// ClockDial — picker jam berputar (web Absensi.jsx:64-147):
-  /// langkah 1 jam (0–23), langkah 2 menit (kelipatan 5).
+  /// Pemilih jam masuk (+/- jam & menit). Hasilnya langsung disimpan ke server.
   Future<void> _openClockDial(Map<String, dynamic> s) async {
     final result = await showDialog<String>(
       context: context,
-      builder: (_) => _ClockDialDialog(
+      builder: (_) => _JamMasukDialog(
         name: '${s['name']}',
         initial: '${s['shift_start'] ?? ''}',
       ),
     );
-    if (result == null) return; // ditutup tanpa mengubah
-    _dirtySchedule.add(int.tryParse('${s['id']}') ?? 0);
-    setState(() {
-      schedule = schedule
-          .map((x) => x['id'] == s['id']
-              ? (Map<String, dynamic>.from(x)..['shift_start'] = result)
-              : x)
-          .toList();
-    });
+    if (result == null) return; // dibatalkan
+    await _saveSchedule(s, result.isEmpty ? null : result,
+        num.tryParse('${s['work_hours']}'));
   }
 
   String _label(String s) => {
@@ -693,7 +685,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
               ]),
               const SizedBox(height: 8),
               Row(children: [
-                // Tombol jam masuk → ClockDial
+                // Tombol jam masuk → pemilih jam
                 Expanded(
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
@@ -860,208 +852,121 @@ class _AbsensiPageState extends State<AbsensiPage> {
 }
 
 // ============================================================================
-// CLOCK DIAL — picker jam berputar 24 jam (web Absensi.jsx:64-147)
+// PEMILIH JAM MASUK — tombol +/- jam & menit, langsung disimpan (web JamMasukDialog)
 // ============================================================================
-class _ClockDialDialog extends StatefulWidget {
+class _JamMasukDialog extends StatefulWidget {
   final String name;
   final String initial;
 
-  const _ClockDialDialog({required this.name, required this.initial});
+  const _JamMasukDialog({required this.name, required this.initial});
 
   @override
-  State<_ClockDialDialog> createState() => _ClockDialDialogState();
+  State<_JamMasukDialog> createState() => _JamMasukDialogState();
 }
 
-class _ClockDialDialogState extends State<_ClockDialDialog> {
-  int? hour;
-  int? minute;
-  bool stepHour = true;
-
-  static const size = 260.0;
-  static const center = size / 2;
-  static const radius = 104.0;
+class _JamMasukDialogState extends State<_JamMasukDialog> {
+  static const pilihan = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '14:00'];
+  late int hour;
+  late int minute;
 
   @override
   void initState() {
     super.initState();
     final parts = widget.initial.split(':');
-    if (parts.isNotEmpty) {
-      hour = int.tryParse(parts[0]);
-      if (parts.length > 1) minute = int.tryParse(parts[1]);
-    }
-    stepHour = hour == null;
+    hour = parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 8) : 8;
+    minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
   }
 
-  List<int> get values {
-    if (stepHour) return List<int>.generate(24, (i) => i);
-    return List<int>.generate(12, (i) => i * 5);
-  }
+  String _pad(int n) => n.toString().padLeft(2, '0');
+  String get _value => '${_pad(hour)}:${_pad(minute)}';
+  String get _periode =>
+      hour < 11 ? 'pagi' : hour < 15 ? 'siang' : hour < 18 ? 'sore' : 'malam';
 
-  int get max => stepHour ? 24 : 60;
-  int? get current => stepHour ? hour : minute;
-
-  void _pick(int v) {
-    if (stepHour) {
-      setState(() { hour = v; stepHour = false; });
-    } else {
-      final hh = (hour ?? 0).toString().padLeft(2, '0');
-      final mm = v.toString().padLeft(2, '0');
-      Navigator.pop(context, '$hh:$mm');
-    }
+  Widget _stepper(String label, int v, VoidCallback dec, VoidCallback inc) {
+    Widget btn(String t, VoidCallback f) => SizedBox(
+          width: 56,
+          height: 40,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.cream,
+                foregroundColor: AppColors.char,
+                elevation: 0,
+                padding: EdgeInsets.zero),
+            onPressed: f,
+            child: Text(t, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+          ),
+        );
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label.toUpperCase(),
+          style: AppText.body(size: 10, weight: FontWeight.w700, color: Colors.black38)),
+      const SizedBox(height: 6),
+      btn('+', inc),
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Text(_pad(v), style: AppText.display(size: 40)),
+      ),
+      btn('−', dec),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasValue = widget.initial.isNotEmpty && widget.initial != 'null';
     return AlertDialog(
       title: Text('Atur Jam Masuk', style: AppText.display(size: 17)),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(widget.name,
-            style: AppText.body(size: 12, color: Colors.black45)),
-        const SizedBox(height: 12),
-        // HH : MM — klik untuk pindah langkah
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _hmtile(hour, true),
-          Text(':', style: AppText.display(size: 24, color: Colors.black26)),
-          _hmtile(minute, false),
-        ]),
-        const SizedBox(height: 6),
-        Text(
-          stepHour
-              ? 'Pilih jam (0–23) pada pukul berputar'
-              : 'Pilih menit (kelipatan 5)',
-          style: AppText.body(size: 10, color: Colors.black38),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: size,
-          height: size,
-          child: GestureDetector(
-            onTapUp: (d) {
-              final local = d.localPosition;
-              final dx = local.dx - center;
-              final dy = local.dy - center;
-              if (math.sqrt(dx * dx + dy * dy) > radius + 24) return;
-              var ang = math.atan2(dy, dx) + math.pi / 2;
-              if (ang < 0) ang += math.pi * 2;
-              var v = ((ang / (math.pi * 2)) * max).round() % max;
-              // jam 0 vs 23: nilai tepat di batas
-              if (!stepHour) v = (v ~/ 5) * 5;
-              _pick(v);
-            },
-            child: CustomPaint(
-              painter: _DialPainter(
-                values: values,
-                max: max,
-                current: current,
-                stepHour: stepHour,
-              ),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(widget.name, style: AppText.body(size: 12, color: Colors.black45)),
+          const SizedBox(height: 12),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            _stepper('Jam', hour, () => setState(() => hour = (hour + 23) % 24),
+                () => setState(() => hour = (hour + 1) % 24)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(':', style: AppText.display(size: 32, color: Colors.black26)),
             ),
-          ),
-        ),
-      ]),
+            _stepper('Menit', minute, () => setState(() => minute = (minute + 55) % 60),
+                () => setState(() => minute = (minute + 5) % 60)),
+          ]),
+          const SizedBox(height: 8),
+          Text('Pukul ${_pad(hour)}.${_pad(minute)} ($_periode)',
+              style: AppText.body(size: 12, color: Colors.black45)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
+            for (final t in pilihan)
+              ChoiceChip(
+                label: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                selected: t == _value,
+                selectedColor: AppColors.chili,
+                labelStyle: TextStyle(color: t == _value ? Colors.white : Colors.black54),
+                onSelected: (_) => setState(() {
+                  hour = int.parse(t.substring(0, 2));
+                  minute = int.parse(t.substring(3, 5));
+                }),
+              ),
+          ]),
+        ]),
+      ),
       actions: [
-        if (widget.initial.isNotEmpty && widget.initial != 'null')
+        TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Batal')),
+        if (hasValue)
           TextButton(
             onPressed: () => Navigator.pop(context, ''),
             child: Text('Hapus',
                 style: AppText.body(
-                    size: 13,
-                    weight: FontWeight.w700,
-                    color: AppColors.chili)),
+                    size: 13, weight: FontWeight.w700, color: AppColors.chili)),
           ),
         FilledButton(
           style: FilledButton.styleFrom(
               backgroundColor: AppColors.char, elevation: 0),
-          onPressed: () => Navigator.pop(context, null),
-          child: const Text('Selesai'),
+          onPressed: () => Navigator.pop(context, _value),
+          child: const Text('Simpan'),
         ),
       ],
     );
   }
-
-  Widget _hmtile(int? v, bool isHour) {
-    final active = stepHour == isHour;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () => setState(() => stepHour = isHour),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-            color: active ? AppColors.chili : AppColors.cream,
-            borderRadius: BorderRadius.circular(14)),
-        child: Text(
-            v == null ? '––' : v.toString().padLeft(2, '0'),
-            style: AppText.display(
-                size: 30, color: active ? Colors.white : Colors.black54)),
-      ),
-    );
-  }
-}
-
-class _DialPainter extends CustomPainter {
-  final List<int> values;
-  final int max;
-  final int? current;
-  final bool stepHour;
-
-  _DialPainter(
-      {required this.values, required this.max, this.current, required this.stepHour});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const c = _ClockDialDialogState.center;
-    const r = _ClockDialDialogState.radius;
-    // Lingkaran latar
-    canvas.drawCircle(
-        const Offset(c, c),
-        r + 18,
-        Paint()..color = const Color(0xFFFAF3EC));
-    // Jarum
-    if (current != null) {
-      final ang = (current! / max) * math.pi * 2 - math.pi / 2;
-      final p = Offset(c + r * math.cos(ang), c + r * math.sin(ang));
-      final needle = Paint()
-        ..color = AppColors.chili
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-      canvas.drawLine(const Offset(c, c), p, needle);
-      canvas.drawCircle(const Offset(c, c), 6, Paint()..color = AppColors.chili);
-      canvas.drawCircle(p, 14, Paint()..color = AppColors.chili);
-    }
-    // Angka
-    for (final v in values) {
-      final ang = (v / max) * math.pi * 2 - math.pi / 2;
-      final p = Offset(c + r * math.cos(ang), c + r * math.sin(ang));
-      final active = current == v;
-      canvas.drawCircle(
-          p,
-          active ? 15 : 13,
-          Paint()
-            ..color = active ? AppColors.chili : Colors.white);
-      canvas.drawCircle(
-          p,
-          active ? 15 : 13,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1
-            ..color = const Color(0x2216110F));
-      final tp = TextPainter(
-        text: TextSpan(
-            text: v.toString().padLeft(2, '0'),
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                color: active ? Colors.white : const Color(0xB016110F))),
-        textDirection: TextDirection.ltr,
-      );
-      tp.layout();
-      tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DialPainter old) =>
-      old.current != current || old.max != max || old.values != values;
 }
 
 // ============================================================================

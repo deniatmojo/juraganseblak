@@ -60,35 +60,35 @@ function getPosition() {
 
 const inputCls = 'w-full bg-white border border-black/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili'
 
-/* ============ CLOCK DIAL — picker jam berputar 24 jam dalam popup ============ */
-function ClockDial({ value, onChange, onClose, name }) {
-  const [hh, m0] = (value || '').split(':')
-  const [hour, setHour] = useState(hh ? Number(hh) : null)
-  const [minute, setMinute] = useState(m0 ? Number(m0) : null)
-  const [step, setStep] = useState('hour') // 'hour' | 'minute'
+/* ============ PEMILIH JAM MASUK — tombol +/- jam & menit, langsung disimpan ============ */
+const JAM_PILIHAN = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '14:00']
+const pad2 = (n) => String(n).padStart(2, '0')
+const periodeJam = (h) => (h < 11 ? 'pagi' : h < 15 ? 'siang' : h < 18 ? 'sore' : 'malam')
 
-  const SIZE = 260, C = SIZE / 2, R = 104
-  const values = step === 'hour'
-    ? Array.from({ length: 24 }, (_, i) => i)
-    : Array.from({ length: 12 }, (_, i) => i * 5)
-  const max = step === 'hour' ? 24 : 60
-  const current = step === 'hour' ? hour : minute
+function JamMasukDialog({ value, name, onSave, onClose }) {
+  const [hh, mm] = (value || '08:00').split(':').map(Number)
+  const [hour, setHour] = useState(Number.isFinite(hh) ? hh : 8)
+  const [minute, setMinute] = useState(Number.isFinite(mm) ? mm : 0)
+  const [saving, setSaving] = useState(false)
 
-  const pos = (v) => {
-    const ang = (v / max) * Math.PI * 2 - Math.PI / 2
-    return { x: C + R * Math.cos(ang), y: C + R * Math.sin(ang), ang }
+  const stepHour = (d) => setHour((h) => (h + d + 24) % 24)
+  const stepMinute = (d) => setMinute((m) => (m + d + 60) % 60)
+  const pilih = (t) => { const [h, m] = t.split(':').map(Number); setHour(h); setMinute(m) }
+  const simpan = async (v) => {
+    setSaving(true)
+    await onSave(v)
+    setSaving(false)
+    onClose()
   }
 
-  const pick = (v) => {
-    if (step === 'hour') { setHour(v); setStep('minute') }
-    else {
-      setMinute(v)
-      onChange(`${String(hour ?? 0).padStart(2, '0')}:${String(v).padStart(2, '0')}`)
-      onClose()
-    }
-  }
-
-  const needle = current !== null ? pos(current) : null
+  const stepper = (label, val, onDec, onInc) => (
+    <div className="flex flex-col items-center gap-2">
+      <span className="text-[11px] font-bold uppercase text-char/40">{label}</span>
+      <button type="button" onClick={onInc} aria-label={`${label} naik`} className="w-14 h-10 rounded-xl bg-cream hover:bg-cream/70 text-char font-bold text-xl">+</button>
+      <span className="font-display text-5xl tabular-nums w-20 text-center">{pad2(val)}</span>
+      <button type="button" onClick={onDec} aria-label={`${label} turun`} className="w-14 h-10 rounded-xl bg-cream hover:bg-cream/70 text-char font-bold text-xl">−</button>
+    </div>
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
@@ -97,50 +97,26 @@ function ClockDial({ value, onChange, onClose, name }) {
         <h3 className="font-display text-lg uppercase">Atur Jam Masuk</h3>
         <p className="text-char/50 text-sm mb-4">{name}</p>
 
-        {/* Tampilan HH : MM — klik untuk pindah langkah */}
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <button onClick={() => setStep('hour')} className={`font-display text-4xl tabular-nums rounded-2xl px-4 py-1.5 transition-colors ${step === 'hour' ? 'bg-chili text-white' : 'bg-cream text-char/60 hover:bg-cream/70'}`}>
-            {hour !== null ? String(hour).padStart(2, '0') : '––'}
-          </button>
-          <span className="font-display text-3xl text-char/30 animate-pulse">:</span>
-          <button onClick={() => hour !== null && setStep('minute')} className={`font-display text-4xl tabular-nums rounded-2xl px-4 py-1.5 transition-colors ${step === 'minute' ? 'bg-chili text-white' : 'bg-cream text-char/60 hover:bg-cream/70'}`}>
-            {minute !== null ? String(minute).padStart(2, '0') : '––'}
-          </button>
+        <div className="flex items-center justify-center gap-2">
+          {stepper('Jam', hour, () => stepHour(-1), () => stepHour(1))}
+          <span className="font-display text-4xl text-char/30 mt-6">:</span>
+          {stepper('Menit', minute, () => stepMinute(-5), () => stepMinute(5))}
         </div>
-        <p className="text-[11px] text-char/40 -mt-2 mb-3">
-          {step === 'hour' ? 'Pilih jam (0–23) pada pukul berputar' : 'Pilih menit (kelipatan 5)'}
-        </p>
+        <p className="text-sm text-char/50 mt-3">Pukul {pad2(hour)}.{pad2(minute)} ({periodeJam(hour)})</p>
 
-        {/* Dial */}
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full select-none">
-          <circle cx={C} cy={C} r={R + 18} fill="#FAF3EC" />
-          {needle && (
-            <g>
-              <line x1={C} y1={C} x2={needle.x} y2={needle.y} stroke="#C81E1E" strokeWidth="3" strokeLinecap="round" />
-              <circle cx={C} cy={C} r="6" fill="#C81E1E" />
-              <circle cx={needle.x} cy={needle.y} r="14" fill="#C81E1E" />
-            </g>
-          )}
-          {values.map((v) => {
-            const p = pos(v)
-            const active = current === v
-            return (
-              <g key={v} onClick={() => pick(v)} className="cursor-pointer">
-                <circle cx={p.x} cy={p.y} r={active ? 15 : 13} fill={active ? '#C81E1E' : '#fff'} stroke={active ? '#C81E1E' : '#16110F22'} strokeWidth="1" />
-                <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize="12" fontWeight={active ? 800 : 600} fill={active ? '#fff' : '#16110FB0'} className="pointer-events-none">
-                  {String(v).padStart(2, '0')}
-                </text>
-              </g>
-            )
-          })}
-        </svg>
+        <div className="flex flex-wrap justify-center gap-2 mt-4">
+          {JAM_PILIHAN.map((t) => (
+            <button key={t} type="button" onClick={() => pilih(t)} className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${t === `${pad2(hour)}:${pad2(minute)}` ? 'bg-chili text-white border-chili' : 'bg-white text-char/70 border-black/15 hover:bg-cream'}`}>{t}</button>
+          ))}
+        </div>
 
-        <div className="flex gap-3 mt-4">
+        <div className="flex gap-3 mt-6">
           {value && (
-            <button onClick={() => { onChange(''); onClose() }} className="flex-1 border border-black/15 text-chili font-bold py-3 rounded-full text-sm">Hapus</button>
+            <button disabled={saving} onClick={() => simpan(null)} className="flex-1 border border-black/15 text-chili font-bold py-3 rounded-full text-sm disabled:opacity-40">Hapus</button>
           )}
-          <button onClick={onClose} className="flex-1 bg-char hover:bg-char-soft text-white font-bold py-3 rounded-full text-sm">Selesai</button>
+          <button disabled={saving} onClick={() => simpan(`${pad2(hour)}:${pad2(minute)}`)} className="flex-1 bg-char hover:bg-char-soft text-white font-bold py-3 rounded-full text-sm disabled:opacity-40">{saving ? 'Menyimpan...' : 'Simpan'}</button>
         </div>
+        <button onClick={onClose} className="mt-3 text-xs text-char/40 font-bold">Batal</button>
       </div>
     </div>
   )
@@ -368,7 +344,7 @@ export default function Absensi() {
     } catch (e) { setError(e.message) }
   }
 
-  // Setting jadwal: ubah durasi kerja (jam masuk via ClockDial)
+  // Setting jadwal: ubah durasi kerja (jam masuk via JamMasukDialog)
   const editSchedule = (id, field, value) => {
     setSchedule((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value, dirty: true } : s)))
   }
@@ -380,7 +356,7 @@ export default function Absensi() {
         shift_start: s.shift_start || null,
         work_hours: Number(s.work_hours || 8),
       })
-      setSchedule((prev) => prev.map((x) => (x.id === s.id ? { ...x, dirty: false } : x)))
+      setSchedule((prev) => prev.map((x) => (x.id === s.id ? { ...x, shift_start: s.shift_start || null, dirty: false } : x)))
       refreshToday()
     } catch (e) { setError(e.message) }
     finally { setSavingId(null) }
@@ -468,7 +444,7 @@ export default function Absensi() {
                 <div>
                   <h2 className="font-bold text-cream">Pengaturan Jadwal Kerja</h2>
                   <p className="text-xs text-cream/50 mt-1">
-                    Atur jam masuk (format 24 jam) &amp; durasi kerja tiap karyawan. Absen keluar tercatat otomatis saat durasi kerja terlewati.
+                    Klik jam masuk untuk mengubahnya (langsung tersimpan) &amp; atur durasi kerja tiap karyawan. Absen keluar tercatat otomatis saat durasi kerja terlewati.
                   </p>
                 </div>
               </div>
@@ -650,13 +626,16 @@ export default function Absensi() {
         </>
       )}
 
-      {/* POPUP CLOCK DIAL (owner, atur jam masuk) */}
+      {/* POPUP JAM MASUK (atur jam masuk, langsung tersimpan) */}
       {dialFor && (
-        <ClockDial
+        <JamMasukDialog
           name={dialFor.name}
           value={dialFor.shift_start}
           onClose={() => setDialFor(null)}
-          onChange={(v) => editSchedule(dialFor.id, 'shift_start', v)}
+          onSave={async (v) => {
+            const cur = schedule.find((x) => x.id === dialFor.id)
+            if (cur) await saveSchedule({ ...cur, shift_start: v })
+          }}
         />
       )}
 
