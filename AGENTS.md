@@ -32,3 +32,9 @@ Project ini punya knowledge graph via MCP `graphify` (data di `graphify-out/grap
 
 Setelah mengubah kode, jalankan `graphify update .` (tanpa biaya API) lalu commit hasilnya bila perlu.
 Untuk dokumen/gambar baru (md, dll.) gunakan `/graphify --update` di asisten AI.
+
+## Rilis Android (paritas dengan web)
+
+- `docs/PROMPT-UPDATE-ANDROID.md` — prompt chat berulang "Update Android APK nya".
+- `mobile/ANDROID-SYNC.md` — titik sinkron terakhir (commit), peta paritas web↔Flutter, riwayat rilis.
+  Perbarui setiap rilis APK. Halaman publik web (Landing, /order, /track, /download) tidak ada di aplikasi.
