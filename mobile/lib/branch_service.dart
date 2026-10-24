@@ -20,12 +20,12 @@ class BranchService extends ChangeNotifier {
   List<BranchOption> branches = [];
   String selected = ''; // '' | 'all' | '<id>'
 
-  bool canPick(AppUser? u) => u != null && u.isAdmin && u.branchId == null;
+  bool canPick(AppUser? u) => u != null && u.branchScoped && u.branchId == null;
 
   /// Cabang efektif untuk label/default form: pilihan header (bila id),
   /// cabang terkunci admin, atau null (semua / belum ditentukan).
   int? effectiveId(AppUser? u) {
-    if (u != null && u.role == 'admin' && u.branchId != null) return u.branchId;
+    if (u != null && u.isLockedAdmin) return u.branchId;
     return int.tryParse(selected);
   }
 
@@ -39,7 +39,7 @@ class BranchService extends ChangeNotifier {
   /// Nilai `branch_id` yang disuntikkan ke request API (null = tidak disuntik).
   /// Kasir/karyawan tidak disuntik — server memakai cabang shift mereka.
   String? paramFor(AppUser? u) {
-    if (u == null || !u.isAdmin) return null;
+    if (u == null || !u.branchScoped) return null;
     return selected.isEmpty ? null : selected;
   }
 

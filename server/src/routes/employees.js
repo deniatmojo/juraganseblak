@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import { requireRole } from '../auth.js';
 
 const router = Router();
+const ownerOnly = requireRole('owner');
+// Tim Leader TIDAK boleh melihat/mengubah data finansial (tarif harian, kasbon)
+// maupun akun login karyawan.
+const LEADER_FIELDS = ['name', 'role', 'phone', 'branch_id'];
 
 const SELECT_EMP = `
   SELECT e.id, e.name, e.role, e.phone, e.daily_rate, e.is_active, e.user_id, e.branch_id,
@@ -34,10 +39,18 @@ function scheduleParams(body, params) {
 }
 
 // GET /api/employees
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
     const [rows] = await pool.query(`${SELECT_EMP} WHERE e.is_active = 1 ORDER BY e.name`);
-    res.json(rows.map((r) => ({ ...r, daily_rate: Number(r.daily_rate), work_hours: Number(r.work_hours), kasbon_open: Number(r.kasbon_open) })));
+    const isOwner = req.user.role === 'owner';
+    res.json(rows.map((r) => ({
+      ...r,
+      daily_rate: isOwner ? Number(r.daily_rate) : null,
+      kasbon_open: isOwner ? Number(r.kasbon_open) : null,
+      account_email: isOwner ? r.account_email : null,
+      account_role: isOwner ? r.account_role : null,
+      work_hours: Number(r.work_hours),
+    })));
   } catch (e) { next(e); }
 });
 
@@ -56,7 +69,7 @@ async function assertUserFree(user_id, exceptEmployeeId = null) {
 }
 
 // POST /api/employees — { name, role, phone?, daily_rate?, user_id? }
-router.post('/', async (req, res, next) => {
+router.post('/', ownerOnly, async (req, res, next) => {
   try {
     const { name, role = '', phone = null, daily_rate = 0, user_id = null, branch_id = null } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Nama karyawan wajib diisi' });
@@ -75,7 +88,10 @@ router.post('/', async (req, res, next) => {
 // PATCH /api/employees/:id
 router.patch('/:id', async (req, res, next) => {
   try {
-    const allowed = ['name', 'role', 'phone', 'daily_rate', 'user_id', 'branch_id', 'is_active'];
+    const isOwner = req.user.role === 'owner';
+    const allowed = isOwner
+      ? ['name', 'role', 'phone', 'daily_rate', 'user_id', 'branch_id', 'is_active']
+      : LEADER_FIELDS;
     const sets = allowed.filter((f) => req.body[f] !== undefined);
     const id = Number(req.params.id);
     if (req.body.user_id !== undefined) await assertUserFree(req.body.user_id, id);
@@ -104,7 +120,7 @@ router.patch('/:id', async (req, res, next) => {
 });
 
 // DELETE /api/employees/:id — soft delete
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', ownerOnly, async (req, res, next) => {
   try {
     const [result] = await pool.query('UPDATE employees SET is_active = 0 WHERE id = :id', {
       id: Number(req.params.id),
@@ -115,7 +131,7 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // GET /api/employees/:id/kasbon — riwayat kasbon
-router.get('/:id/kasbon', async (req, res, next) => {
+router.get('/:id/kasbon', ownerOnly, async (req, res, next) => {
   try {
     const [rows] = await pool.query(
       'SELECT id, amount, note, is_settled, created_at, settled_at FROM kasbon WHERE employee_id = :id ORDER BY created_at DESC LIMIT 100',
@@ -126,7 +142,7 @@ router.get('/:id/kasbon', async (req, res, next) => {
 });
 
 // POST /api/employees/:id/kasbon — catat kasbon baru
-router.post('/:id/kasbon', async (req, res, next) => {
+router.post('/:id/kasbon', ownerOnly, async (req, res, next) => {
   try {
     const { amount, note = null } = req.body || {};
     if (!amount || Number(amount) <= 0) return res.status(400).json({ error: 'Jumlah kasbon harus > 0' });

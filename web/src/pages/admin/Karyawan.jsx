@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { api } from '../../api'
 
-const roleLabels = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
+const roleLabels = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan', gudang: 'Admin Gudang', leader: 'Tim Leader' }
+// Role yang cabangnya bisa diatur: admin & gudang dikunci, kasir = cabang bawaan.
+const BRANCH_ROLES = ['admin', 'kasir', 'gudang']
 const inputCls = 'w-full bg-white text-char border border-black/15 rounded-xl px-4 py-3 text-sm'
 
 export default function Karyawan() {
+  const { user } = useOutletContext() ?? {}
+  // Tim Leader: hanya data dasar, jadwal & rotasi cabang — tanpa akun login, tarif, kasbon.
+  const isLeader = user?.role === 'leader'
   const [users, setUsers] = useState([])
   const [employees, setEmployees] = useState([])
   const [branches, setBranches] = useState([])
@@ -18,6 +24,12 @@ export default function Karyawan() {
   const [resetTarget, setResetTarget] = useState(null) // user yang di-reset password
 
   const load = () => {
+    if (isLeader) {
+      Promise.all([api.get('/employees'), api.get('/branch-options')])
+        .then(([e, b]) => { setEmployees(e); setBranches(b) })
+        .catch((err) => setError(err.message))
+      return
+    }
     Promise.all([api.get('/users'), api.get('/employees'), api.get('/branches')])
       .then(([u, e, b]) => { setUsers(u); setEmployees(e); setBranches(b.filter((x) => x.is_active)) })
       .catch((e) => setError(e.message))
@@ -91,7 +103,9 @@ export default function Karyawan() {
       {error && <p className="text-xs font-bold text-chili bg-red-50 rounded-xl px-4 py-3">{error}</p>}
       {success && <p className="text-xs font-bold text-green-700 bg-green-50 rounded-xl px-4 py-3">{success}</p>}
 
-      {/* AKUN LOGIN */}
+      {/* AKUN LOGIN — Super Admin saja */}
+      {!isLeader && (
+      <>
       <section className="bg-white border border-black/10 rounded-2xl p-6 md:p-8">
         <h2 className="font-display text-xl mb-1">Akun Login</h2>
         <p className="text-sm text-char/60 mb-6">
@@ -117,14 +131,16 @@ export default function Karyawan() {
               <option value="kasir">Karyawan Kasir</option>
               <option value="karyawan">Karyawan (Absensi saja)</option>
               <option value="admin">Admin</option>
+              <option value="gudang">Admin Gudang (Absensi + Stock)</option>
+              <option value="leader">Tim Leader (Absensi + Karyawan)</option>
               <option value="owner">Super Admin</option>
             </select>
           </div>
-          {(accForm.role === 'admin' || accForm.role === 'kasir') && (
+          {BRANCH_ROLES.includes(accForm.role) && (
             <div>
               <label className="block text-sm font-bold mb-1.5">Cabang</label>
               <select value={accForm.branch_id} onChange={(e) => setAccForm({ ...accForm, branch_id: e.target.value })} className={inputCls}>
-                <option value="">{accForm.role === 'admin' ? 'Semua cabang (tidak dikunci)' : 'Pilih saat buka shift'}</option>
+                <option value="">{accForm.role === 'kasir' ? 'Pilih saat buka shift' : 'Semua cabang (tidak dikunci)'}</option>
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
@@ -157,14 +173,14 @@ export default function Karyawan() {
                     <span className="inline-block bg-ember/15 text-ember-dark text-xs font-bold px-3 py-1 rounded-full">{roleLabels[u.role] || u.role}</span>
                   </td>
                   <td className="px-6 py-4">
-                    {u.role === 'admin' || u.role === 'kasir' ? (
+                    {BRANCH_ROLES.includes(u.role) ? (
                       <select
                         value={u.branch_id ?? ''}
                         onChange={(e) => api.patch(`/users/${u.id}`, { branch_id: e.target.value ? Number(e.target.value) : null }).then(load).catch((err) => setError(err.message))}
                         className="border border-black/10 rounded-lg px-2 py-1.5 text-xs bg-white"
-                        title={u.role === 'admin' ? 'Admin dikunci ke cabang ini' : 'Cabang bawaan kasir (dipilih saat buka shift)'}
+                        title={u.role === 'kasir' ? 'Cabang bawaan kasir (dipilih saat buka shift)' : 'Dikunci ke cabang ini'}
                       >
-                        <option value="">{u.role === 'admin' ? 'Semua cabang' : 'Pilih saat shift'}</option>
+                        <option value="">{u.role === 'kasir' ? 'Pilih saat shift' : 'Semua cabang'}</option>
                         {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
                     ) : <span className="text-char/30">—</span>}
@@ -189,13 +205,19 @@ export default function Karyawan() {
         </div>
       </section>
 
+      </>
+      )}
+
       {/* DATA KARYAWAN */}
       <section className="bg-white border border-black/10 rounded-2xl p-6 md:p-8">
         <h2 className="font-display text-xl mb-1">Data Karyawan</h2>
         <p className="text-sm text-char/60 mb-6">
-          Data untuk absensi &amp; payroll. Hubungkan ke akun login supaya karyawan bisa clock in/out sendiri.
+          {isLeader
+            ? 'Atur posisi dan rotasi cabang karyawan. Jam masuk & durasi kerja diatur di menu Absensi.'
+            : 'Data untuk absensi & payroll. Hubungkan ke akun login supaya karyawan bisa clock in/out sendiri.'}
         </p>
 
+        {!isLeader && (
         <form onSubmit={createEmployee} className="grid md:grid-cols-5 gap-5 mb-8">
           <div>
             <label className="block text-sm font-bold mb-1.5">Nama</label>
@@ -241,6 +263,7 @@ export default function Karyawan() {
             </button>
           </div>
         </form>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
@@ -248,27 +271,29 @@ export default function Karyawan() {
               <tr className="bg-char text-cream text-left">
                 <th className="px-6 py-3 font-semibold">Nama</th>
                 <th className="px-6 py-3 font-semibold">Posisi</th>
-                <th className="px-6 py-3 font-semibold">Tarif Harian</th>
-                <th className="px-6 py-3 font-semibold">Kasbon Belum Lunas</th>
+                {!isLeader && <th className="px-6 py-3 font-semibold">Tarif Harian</th>}
+                {!isLeader && <th className="px-6 py-3 font-semibold">Kasbon Belum Lunas</th>}
                 <th className="px-6 py-3 font-semibold">Cabang</th>
-                <th className="px-6 py-3 font-semibold">Akun Login</th>
-                <th className="px-6 py-3 font-semibold text-right">Aksi</th>
+                {!isLeader && <th className="px-6 py-3 font-semibold">Akun Login</th>}
+                {!isLeader && <th className="px-6 py-3 font-semibold text-right">Aksi</th>}
               </tr>
             </thead>
             <tbody>
               {employees.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-char/50">Belum ada karyawan.</td></tr>
+                <tr><td colSpan={isLeader ? 3 : 7} className="px-6 py-8 text-center text-char/50">Belum ada karyawan.</td></tr>
               )}
               {employees.map((emp) => (
                 <tr key={emp.id} className="border-t border-black/5">
                   <td className="px-6 py-4 font-semibold">{emp.name}</td>
                   <td className="px-6 py-4">{emp.role || '—'}</td>
-                  <td className="px-6 py-4">{emp.daily_rate ? 'Rp ' + emp.daily_rate.toLocaleString('id-ID') : '—'}</td>
+                  {!isLeader && <td className="px-6 py-4">{emp.daily_rate ? 'Rp ' + emp.daily_rate.toLocaleString('id-ID') : '—'}</td>}
+                  {!isLeader && (
                   <td className="px-6 py-4">
                     {emp.kasbon_open > 0 ? (
                       <span className="text-xs font-bold text-chili bg-red-50 px-2.5 py-1 rounded-full">Rp {emp.kasbon_open.toLocaleString('id-ID')}</span>
                     ) : '—'}
                   </td>
+                  )}
                   <td className="px-6 py-4">
                     <select
                       value={emp.branch_id ?? ''}
@@ -281,10 +306,12 @@ export default function Karyawan() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-6 py-4 text-char/60">{emp.account_email || <span className="text-char/30">belum terhubung</span>}</td>
+                  {!isLeader && <td className="px-6 py-4 text-char/60">{emp.account_email || <span className="text-char/30">belum terhubung</span>}</td>}
+                  {!isLeader && (
                   <td className="px-6 py-4 text-right">
                     <button onClick={() => removeEmployee(emp)} className="text-chili hover:underline font-semibold text-xs">Hapus</button>
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>

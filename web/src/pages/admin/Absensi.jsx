@@ -288,7 +288,9 @@ function RekapAbsensi({ personal }) {
 export default function Absensi() {
   const { user } = useOutletContext()
   const isOwner = user?.role === 'owner'
-  const isBoss = isOwner || user?.role === 'admin'
+  const isBoss = isOwner || user?.role === 'admin' || user?.role === 'leader'
+  // Jadwal kerja (jam masuk & durasi): Super Admin dan Tim Leader.
+  const canSchedule = isOwner || user?.role === 'leader'
 
   const [rows, setRows] = useState([])
   const [empPreset, setEmpPreset] = useState('today')
@@ -328,11 +330,11 @@ export default function Absensi() {
   }, [singleDay, empFrom, empTo])
 
   const loadSchedule = useCallback(() => {
-    if (!isOwner) return
+    if (!canSchedule) return
     api.get('/employees')
       .then(setSchedule)
       .catch(() => {})
-  }, [isOwner])
+  }, [canSchedule])
   useEffect(loadSchedule, [loadSchedule])
 
   const clock = async (kind) => {
@@ -456,8 +458,8 @@ export default function Absensi() {
           {/* LOKASI ABSEN PER CABANG — Super Admin only */}
           {isOwner && <CabangManager />}
 
-          {/* SETTING JADWAL KERJA — Super Admin only */}
-          {isOwner && (
+          {/* SETTING JADWAL KERJA — Super Admin & Tim Leader */}
+          {canSchedule && (
             <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-char to-char-soft px-6 py-5 flex items-start gap-4">
                 <span className="w-11 h-11 rounded-xl bg-chili/20 grid place-items-center shrink-0 ring-1 ring-chili/40">
@@ -595,7 +597,7 @@ export default function Absensi() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {isOwner ? (
+                        {isBoss ? (
                           <button onClick={() => setStatusForm({ employee_id: r.employee_id, name: r.name, status: 'izin', note: '' })} className="text-xs font-bold text-char/70 hover:text-chili underline">
                             Set Izin/Sakit
                           </button>

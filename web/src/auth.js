@@ -35,16 +35,23 @@ export function getCurrentUser() {
 // - admin    (Admin)         : semua KECUALI Gaji, Karyawan, Keuangan (dan atur jadwal absensi)
 // - kasir    (Karyawan Kasir): POS, Pesanan Online & Absensi saja
 // - karyawan (Karyawan)      : Absensi saja
-export const ROLE_HOME = { owner: '/erp', admin: '/erp', kasir: '/erp/pos', karyawan: '/erp/absensi' }
+// - gudang   (Admin Gudang)   : Absensi + Stock
+// - leader   (Tim Leader)     : Absensi + Karyawan (jadwal masuk, rotasi cabang; tanpa gaji/akun)
+export const ROLE_HOME = { owner: '/erp', admin: '/erp', kasir: '/erp/pos', karyawan: '/erp/absensi', gudang: '/erp/stock', leader: '/erp/absensi' }
 
 const ADMIN_BLOCKED = ['/erp/gaji', '/erp/karyawan', '/erp/keuangan']
 
 const KASIR_ALLOWED = ['/erp/pos', '/erp/pesanan-online', '/erp/absensi']
+// Admin Gudang: Absensi (miliknya) + Stock. Tim Leader: Absensi (semua karyawan) + Karyawan (terbatas).
+const GUDANG_ALLOWED = ['/erp/absensi', '/erp/stock']
+const LEADER_ALLOWED = ['/erp/absensi', '/erp/karyawan']
 
 export function isAllowed(role, path) {
   if (role === 'owner') return true
   if (role === 'admin') return !ADMIN_BLOCKED.some((p) => path === p || path.startsWith(p + '/'))
   if (role === 'kasir') return KASIR_ALLOWED.includes(path)
   if (role === 'karyawan') return path === '/erp/absensi'
+  if (role === 'gudang') return GUDANG_ALLOWED.includes(path)
+  if (role === 'leader') return LEADER_ALLOWED.includes(path)
   return false
 }

@@ -28,7 +28,14 @@ class _KaryawanPageState extends State<KaryawanPage> {
     'admin': 'Admin',
     'kasir': 'Karyawan Kasir',
     'karyawan': 'Karyawan',
+    'gudang': 'Admin Gudang',
+    'leader': 'Tim Leader',
   };
+
+  // Tim Leader: hanya data dasar, jadwal & rotasi cabang — tanpa akun login,
+  // tarif harian, kasbon (selaras web & pembatasan di server).
+  bool get isLeader => widget.user.isLeader;
+  static bool _branchRole(String? r) => r == 'admin' || r == 'kasir' || r == 'gudang';
 
   @override
   void initState() {
@@ -39,8 +46,11 @@ class _KaryawanPageState extends State<KaryawanPage> {
   Future<void> _load() async {
     setState(() { loading = true; error = null; });
     try {
-      final results = await Future.wait(
-          [api.get('/users'), api.get('/employees'), api.get('/branches')]);
+      final results = await Future.wait([
+        isLeader ? Future.value([]) : api.get('/users'),
+        api.get('/employees'),
+        api.get(isLeader ? '/branch-options' : '/branches'),
+      ]);
       if (mounted) {
         setState(() {
           users = (results[0] as List)
@@ -51,7 +61,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
               .toList();
           branches = (results[2] as List)
               .map((r) => Map<String, dynamic>.from(r as Map))
-              .where((b) => b['is_active'] == 1 || b['is_active'] == true)
+              .where((b) => isLeader || b['is_active'] == 1 || b['is_active'] == true)
               .toList();
         });
       }
@@ -106,11 +116,15 @@ class _KaryawanPageState extends State<KaryawanPage> {
                 DropdownMenuItem(
                     value: 'karyawan', child: Text('Karyawan (Absensi saja)')),
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                DropdownMenuItem(
+                    value: 'gudang', child: Text('Admin Gudang (Absensi + Stock)')),
+                DropdownMenuItem(
+                    value: 'leader', child: Text('Tim Leader (Absensi + Karyawan)')),
                 DropdownMenuItem(value: 'owner', child: Text('Super Admin')),
               ],
               onChanged: (v) => setD(() => role = v ?? role),
             ),
-            if (role == 'admin' || role == 'kasir') ...[
+            if (_branchRole(role)) ...[
               const SizedBox(height: 10),
               DropdownButtonFormField<int?>(
                 initialValue: branchId,
@@ -151,7 +165,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
         'email': email.text.trim(),
         'password': pass.text,
         'role': role,
-        if ((role == 'admin' || role == 'kasir') && branchId != null)
+        if (_branchRole(role) && branchId != null)
           'branch_id': branchId,
       });
       setState(() => success = 'Akun ${name.text.trim()} berhasil dibuat.');
@@ -165,7 +179,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
 
   /// Ubah cabang akun: admin dikunci ke cabang ini, kasir = cabang bawaan.
   Future<void> _setUserBranch(Map<String, dynamic> u) async {
-    final isAdmin = u['role'] == 'admin';
+    final isAdmin = u['role'] != 'kasir';
     final current = u['branch_id'] == null
         ? null
         : (u['branch_id'] is int ? u['branch_id'] as int : int.tryParse('${u['branch_id']}'));
@@ -468,6 +482,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
           if (error != null) _banner(error!, AppColors.chili, AppColors.redBg),
           if (success != null)
             _banner(success!, AppColors.greenOk, AppColors.greenBg),
+          if (!isLeader) ...[
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -499,7 +514,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                         style: AppText.body(
                             size: 13, weight: FontWeight.w700)),
                     subtitle: Text(
-                        '${roleLabels['${u['role']}'] ?? '${u['role']}'} · ${u['email']}${(u['role'] == 'admin' || u['role'] == 'kasir') ? ' · ${u['branch_name'] ?? (u['role'] == 'admin' ? 'Semua cabang' : 'Cabang: pilih saat shift')}' : ''}',
+                        '${roleLabels['${u['role']}'] ?? '${u['role']}'} · ${u['email']}${_branchRole(u['role']) ? ' · ${u['branch_name'] ?? (u['role'] == 'kasir' ? 'Cabang: pilih saat shift' : 'Semua cabang')}' : ''}',
                         style:
                             AppText.body(size: 11, color: Colors.black45)),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -508,7 +523,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                           : StatusChip('Nonaktif',
                               fg: Colors.black45,
                               bg: Colors.black.withValues(alpha: 0.05)),
-                      if (u['role'] == 'admin' || u['role'] == 'kasir')
+                      if (_branchRole(u['role']))
                         IconButton(
                           tooltip: 'Atur cabang',
                           icon: const Icon(Icons.storefront_outlined, size: 20),
@@ -534,6 +549,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
             ),
           ),
           const SizedBox(height: 20),
+          ],
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -542,6 +558,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Data Karyawan', style: AppText.display(size: 18)),
+                    if (!isLeader)
                     TextButton.icon(
                       onPressed: _addEmployee,
                       icon: const Icon(Icons.person_add_alt, size: 16),
@@ -553,7 +570,9 @@ class _KaryawanPageState extends State<KaryawanPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Data untuk absensi & payroll. Hubungkan ke akun login supaya karyawan bisa clock in/out sendiri.',
+                  isLeader
+                      ? 'Atur rotasi cabang karyawan. Jam masuk & durasi kerja diatur di menu Absensi.'
+                      : 'Data untuk absensi & payroll. Hubungkan ke akun login supaya karyawan bisa clock in/out sendiri.',
                   style: AppText.body(size: 12, color: Colors.black54),
                 ),
                 for (final e in employees)
@@ -573,6 +592,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                                 Text('${e['name']} — ${e['role'] ?? '—'}',
                                     style: AppText.body(
                                         size: 13, weight: FontWeight.w700)),
+                                if (!isLeader)
                                 Text(
                                   '${num.tryParse('${e['daily_rate']}') != null && num.tryParse('${e['daily_rate']}')! > 0 ? '${formatRp(num.tryParse('${e['daily_rate']}')!)}/hari' : '—'}'
                                   '${(num.tryParse('${e['kasbon_open']}') ?? 0) > 0 ? ' · kasbon ${formatRp(num.tryParse('${e['kasbon_open']}') ?? 0)}' : ''}'
@@ -583,6 +603,7 @@ class _KaryawanPageState extends State<KaryawanPage> {
                               ],
                             ),
                           ),
+                          if (!isLeader)
                           TextButton(
                             onPressed: () => _removeEmployee(e),
                             style: TextButton.styleFrom(

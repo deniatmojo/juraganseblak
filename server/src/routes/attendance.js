@@ -35,7 +35,7 @@ router.get('/', async (req, res, next) => {
   try {
     await autoClockOut();
     const date = req.query.date || today();
-    const isBoss = ['owner', 'admin'].includes(req.user.role);
+    const isBoss = ['owner', 'admin', 'leader'].includes(req.user.role);
     const [rows] = await pool.query(
       `SELECT e.id AS employee_id, e.name, e.role AS posisi, e.user_id, e.branch_id,
               b.name AS branch_name,
@@ -99,7 +99,7 @@ async function checkLocation(empId, req) {
 
 // Cari employee milik user login (atau pakai employee_id eksplisit oleh admin)
 async function resolveEmployee(req) {
-  if (req.body?.employee_id && ['owner', 'admin'].includes(req.user.role)) {
+  if (req.body?.employee_id && ['owner', 'admin', 'leader'].includes(req.user.role)) {
     return Number(req.body.employee_id);
   }
   const [[emp]] = await pool.query(
@@ -127,7 +127,7 @@ router.get('/recap', async (req, res, next) => {
   try {
     const to = req.query.to || today();
     const from = req.query.from || to;
-    const isBoss = ['owner', 'admin'].includes(req.user.role);
+    const isBoss = ['owner', 'admin', 'leader'].includes(req.user.role);
 
     const [[self]] = await pool.query(
       'SELECT id FROM employees WHERE user_id = :u AND is_active = 1 LIMIT 1', { u: req.user.id }
@@ -245,7 +245,7 @@ router.post('/clock-out', async (req, res, next) => {
 // { employee_id, work_date, status, note? }
 // 'hadir' manual memakai jam masuk terjadwal sebagai clock_in (bila belum ada),
 // sehingga auto clock-out tetap jalan berdasarkan durasi kerja.
-router.patch('/status', requireRole('owner', 'admin'), async (req, res, next) => {
+router.patch('/status', requireRole('owner', 'admin', 'leader'), async (req, res, next) => {
   try {
     const { employee_id, work_date, status, note = null } = req.body || {};
     if (!employee_id || !work_date || !['hadir', 'terlambat', 'izin', 'sakit', 'alpa'].includes(status)) {

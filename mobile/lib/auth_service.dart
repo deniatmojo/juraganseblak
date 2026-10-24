@@ -23,9 +23,17 @@ class AppUser {
 
   bool get isOwner => role == 'owner';
   bool get isAdmin => role == 'owner' || role == 'admin';
+  bool get isLeader => role == 'leader';
 
-  /// Admin yang dikunci ke satu cabang tidak bisa memilih/mengganti cabang.
-  bool get isLockedAdmin => role == 'admin' && branchId != null;
+  /// Role yang bekerja lintas cabang lewat pemilih cabang di header
+  /// (owner, admin, dan Admin Gudang untuk stok per cabang).
+  bool get branchScoped => role == 'owner' || role == 'admin' || role == 'gudang';
+
+  /// Akses melihat & mengoreksi absensi semua karyawan.
+  bool get canManageAttendance => isAdmin || isLeader;
+
+  /// Admin / Admin Gudang yang dikunci ke satu cabang tidak bisa mengganti cabang.
+  bool get isLockedAdmin => (role == 'admin' || role == 'gudang') && branchId != null;
 
   /// Label tampilan, sama dengan roleLabel AdminLayout.jsx web.
   String get roleLabel => const {
@@ -33,6 +41,8 @@ class AppUser {
         'admin': 'Admin',
         'kasir': 'Karyawan Kasir',
         'karyawan': 'Karyawan',
+        'gudang': 'Admin Gudang',
+        'leader': 'Tim Leader',
       }[role] ?? role;
 }
 

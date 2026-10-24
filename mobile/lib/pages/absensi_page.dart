@@ -28,7 +28,9 @@ class _AbsensiPageState extends State<AbsensiPage> {
   String? error;
 
   bool get isOwner => widget.user.role == 'owner';
-  bool get isBoss => widget.user.isAdmin;
+  bool get isBoss => widget.user.canManageAttendance;
+  // Jadwal kerja (jam masuk & durasi): Super Admin dan Tim Leader.
+  bool get canSchedule => widget.user.isOwner || widget.user.isLeader;
 
   // Rentang tanggal rekap/detail (web: preset today/week/month/lastmonth)
   String empPreset = 'today';
@@ -162,7 +164,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
   }
 
   Future<void> _loadSchedule() async {
-    if (!isOwner) return;
+    if (!canSchedule) return;
     try {
       final data = await api.get('/employees');
       if (mounted) {
@@ -510,8 +512,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
                 onError: (msg) => setState(() => error = msg),
               ),
             ],
-            // ---- Pengaturan Jadwal Kerja (owner) — web Absensi.jsx:460-537 ----
-            if (isOwner) ...[
+            // ---- Pengaturan Jadwal Kerja (owner & Tim Leader) — web Absensi.jsx ----
+            if (canSchedule) ...[
               const SizedBox(height: 20),
               _scheduleSection(),
             ],
@@ -557,7 +559,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                         style:
                             AppText.body(size: 11, color: Colors.black45),
                       ),
-                      trailing: widget.user.isAdmin
+                      trailing: widget.user.canManageAttendance
                           ? TextButton(
                               onPressed: () => _statusDialog(r),
                               child: Text('Set Status',

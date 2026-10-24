@@ -58,7 +58,7 @@ const navItems = [
   {
     to: '/erp/stock',
     label: 'Stock',
-    roles: ['owner', 'admin'],
+    roles: ['owner', 'admin', 'gudang'],
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
   },
   {
@@ -82,7 +82,7 @@ const navItems = [
   {
     to: '/erp/karyawan',
     label: 'Karyawan',
-    roles: ['owner'],
+    roles: ['owner', 'leader'],
     icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-4-4a4 4 0 11-8 0 4 4 0 018 0zM4 21v-1a5 5 0 015-5h2a5 5 0 015 5v1',
   },
   {
@@ -106,11 +106,12 @@ export default function AdminLayout() {
   const [pwOpen, setPwOpen] = useState(false)
   const [branch, setBranchState] = useState(getBranch)
   // Admin yang dikunci ke satu cabang tidak bisa memilih; kasir ikut cabang shift-nya.
-  const lockedBranch = user?.role === 'admin' ? user.branch_id : null
-  const canPickBranch = (user?.role === 'owner' || user?.role === 'admin') && !lockedBranch
+  const branchRole = user?.role === 'admin' || user?.role === 'gudang'
+  const lockedBranch = branchRole ? user.branch_id : null
+  const canPickBranch = (user?.role === 'owner' || branchRole) && !lockedBranch
 
   const visibleNav = navItems.filter((item) => !item.roles || item.roles.includes(user?.role))
-  const roleLabel = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan' }
+  const roleLabel = { owner: 'Super Admin', admin: 'Admin', kasir: 'Karyawan Kasir', karyawan: 'Karyawan', gudang: 'Admin Gudang', leader: 'Tim Leader' }
   const meta = headerMeta[location.pathname] ?? { title: 'Dashboard', subtitle: '' }
 
   useEffect(() => {
@@ -309,7 +310,7 @@ export default function AdminLayout() {
                       </div>
                     ))}
                   </div>
-                  {user?.role === 'owner' && (
+                  {['owner', 'admin', 'gudang'].includes(user?.role) && (
                     <Link to="/erp/stock" onClick={() => setNotifOpen(false)} className="block text-center text-xs font-bold text-white bg-char hover:bg-char-soft py-3">
                       Kelola Stok
                     </Link>

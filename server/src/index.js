@@ -61,23 +61,32 @@ const adminOnlyForWrites = (req, res, next) => (req.method === 'GET' ? next() : 
 app.use('/api/products', adminOnlyForWrites);
 app.use('/api/categories', adminOnlyForWrites);
 app.use('/api/settings', adminOnlyForWrites);
-app.use('/api/stock', adminOnlyForWrites);
+// Stok: Admin Gudang boleh mengubah (selain owner/admin).
+const stockWriters = requireRole('owner', 'admin', 'gudang');
+app.use('/api/stock', (req, res, next) => (req.method === 'GET' ? next() : stockWriters(req, res, next)));
 app.use('/api/transactions', requireRole('owner'));
 // Daftar pesanan dibaca semua role (antrian dapur/kasir di POS); checkout (POST)
 // terbuka semua role; void dst. dijaga di dalam route.
-app.use('/api/orders', (req, res, next) => (req.method === 'GET' || req.method === 'POST' ? next() : adminOnly(req, res, next)));
+// Pesanan & shift hanya untuk peran kasir/POS (owner, admin, kasir): role lain
+// (karyawan, gudang, leader) tidak punya akses data penjualan sama sekali.
+const posRoles = requireRole('owner', 'admin', 'kasir');
+app.use('/api/orders', posRoles, (req, res, next) => (req.method === 'GET' || req.method === 'POST' ? next() : adminOnly(req, res, next)));
 // Manajemen akun, data karyawan (termasuk atur jadwal), dan payroll:
 // khusus Super Admin (owner). Admin tidak boleh menyentuh menu Gaji/Karyawan.
 app.use('/api/users', requireRole('owner'));
-app.use('/api/employees', requireRole('owner'));
+// Data karyawan: owner penuh; Tim Leader hanya jadwal masuk, rotasi cabang & data dasar
+// (dibatasi per-field di routes/employees.js).
+app.use('/api/employees', requireRole('owner', 'leader'));
 // Kelola titik lokasi cabang absen: khusus Super Admin (owner).
 app.use('/api/branches', requireRole('owner'));
-app.use('/api/attendance', (req, res, next) => (req.method === 'PATCH' ? adminOnly(req, res, next) : next()));
+// Koreksi status absensi: owner/admin/Tim Leader.
+const attendanceEditors = requireRole('owner', 'admin', 'leader');
+app.use('/api/attendance', (req, res, next) => (req.method === 'PATCH' ? attendanceEditors(req, res, next) : next()));
 app.use('/api/payroll', requireRole('owner'));
 // Laporan keuangan (laba rugi, arus kas, buku besar, jurnal): owner only.
 app.use('/api/finance', requireRole('owner'));
 app.use('/api/upload', adminOnly);
-app.use('/api/shifts', requireAuth, (req, res, next) => {
+app.use('/api/shifts', posRoles, (req, res, next) => {
   // Daftar riwayat shift = owner/admin (diproses di route); aktifitas shift
   // (active/open/close) milik kasir sendiri.
   next();

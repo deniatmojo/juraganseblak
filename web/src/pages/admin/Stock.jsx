@@ -16,7 +16,7 @@ const MOVE_BADGE = {
 export default function Stock() {
   const { user, branches = [], branch = '' } = useOutletContext() ?? {}
   // Admin yang dikunci ke satu cabang tidak boleh memilih cabang lain.
-  const lockedBranch = user?.role === 'admin' && user?.branch_id ? String(user.branch_id) : ''
+  const lockedBranch = (user?.role === 'admin' || user?.role === 'gudang') && user?.branch_id ? String(user.branch_id) : ''
   const branchName = (id) => branches.find((b) => String(b.id) === String(id))?.name ?? '-'
   // Cabang bawaan untuk form: cabang aktif di header, bila 'semua' → cabang pertama.
   const defaultBranch = lockedBranch || (branch && branch !== 'all' ? branch : String(branches[0]?.id ?? ''))

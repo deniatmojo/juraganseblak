@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 
 const router = Router();
+const ROLES = ['owner', 'admin', 'kasir', 'karyawan', 'gudang', 'leader'];
 
 // Migrasi ringan: pastikan ENUM role punya nilai 'karyawan' (role absensi-saja).
 // Dijalankan sekali saat modul dimuat; aman dipanggil berulang.
@@ -12,8 +13,8 @@ const router = Router();
       `SELECT COLUMN_TYPE t FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
     );
-    if (col && !col.t.includes('karyawan')) {
-      await pool.query("ALTER TABLE users MODIFY role ENUM('owner','admin','kasir','karyawan') NOT NULL");
+    if (col && !col.t.includes('leader')) {
+      await pool.query("ALTER TABLE users MODIFY role ENUM('owner','admin','kasir','karyawan','gudang','leader') NOT NULL");
     }
   } catch (e) {
     console.error('Migrasi role users gagal:', e.message);
@@ -37,7 +38,7 @@ router.post('/', async (req, res, next) => {
     const { name, email, password, role = 'kasir', branch_id = null } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'Nama, email, dan password wajib diisi' });
     if (String(password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
-    if (!['owner', 'admin', 'kasir', 'karyawan'].includes(role)) return res.status(400).json({ error: 'Role tidak valid' });
+    if (!ROLES.includes(role)) return res.status(400).json({ error: 'Role tidak valid' });
     const hash = bcrypt.hashSync(String(password), 10);
     const [result] = await pool.query(
       'INSERT INTO users (name, email, password_hash, role, branch_id) VALUES (:name, :email, :hash, :role, :branch)',
@@ -63,7 +64,7 @@ router.patch('/:id', async (req, res, next) => {
     }
     const sets = ['name', 'role', 'is_active', 'branch_id'].filter((f) => body[f] !== undefined);
     if (body.branch_id === '') body.branch_id = null; // kosong = tidak dikunci ke cabang
-    if (body.role !== undefined && !['owner', 'admin', 'kasir', 'karyawan'].includes(body.role)) {
+    if (body.role !== undefined && !ROLES.includes(body.role)) {
       return res.status(400).json({ error: 'Role tidak valid' });
     }
     if (sets.length) {

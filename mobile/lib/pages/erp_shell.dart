@@ -89,7 +89,7 @@ class _ErpShellState extends State<ErpShell> {
       NavEntry('Absensi', 'Kehadiran karyawan hari ini',
           Icons.fact_check_outlined, [], AbsensiPage(user: widget.user)),
       NavEntry('Stock', 'Pantau ketersediaan bahan dapur',
-          Icons.inventory_2_outlined, ['owner', 'admin'], StockPage(user: widget.user)),
+          Icons.inventory_2_outlined, ['owner', 'admin', 'gudang'], StockPage(user: widget.user)),
       NavEntry('Cabang', 'Kelola cabang & lokasi absen', Icons.storefront_outlined,
           ['owner'], CabangPage(user: widget.user)),
       NavEntry('Pembayaran', 'Biaya layanan, pembulatan, QRIS & gateway',
@@ -98,7 +98,7 @@ class _ErpShellState extends State<ErpShell> {
       NavEntry('Keuangan', 'Pemasukan & pengeluaran outlet',
           Icons.account_balance_wallet_outlined, ['owner'], KeuanganPage(user: widget.user)),
       NavEntry('Karyawan', 'Kelola akun login & data karyawan',
-          Icons.people_alt_outlined, ['owner'], KaryawanPage(user: widget.user)),
+          Icons.people_alt_outlined, ['owner', 'leader'], KaryawanPage(user: widget.user)),
       NavEntry('Gaji', 'Rekap gaji, kasbon, dan pembayaran',
           Icons.payments_outlined, ['owner'], GajiPage(user: widget.user)),
     ];
@@ -110,6 +110,8 @@ class _ErpShellState extends State<ErpShell> {
     final home = switch (widget.user.role) {
       'kasir' => 'Kasir / POS',
       'karyawan' => 'Absensi',
+      'leader' => 'Absensi',
+      'gudang' => 'Stock',
       _ => 'Dashboard',
     };
     index = entries.indexWhere((e) => e.title == home);
@@ -250,7 +252,7 @@ class _ErpShellState extends State<ErpShell> {
               .map((s) => '${s['name']} (${s['qty']} ${s['unit']})')
               .join(', ') + (low.length > 3 ? ', …' : ''),
           count: low.length,
-          routeTitle: (role == 'owner' || role == 'admin') ? 'Stock' : null,
+          routeTitle: (role == 'owner' || role == 'admin' || role == 'gudang') ? 'Stock' : null,
         ));
       }
     } catch (_) {}
@@ -295,7 +297,7 @@ class _ErpShellState extends State<ErpShell> {
       final rows = (await api.get('/attendance?date=$today') as List)
           .map((r) => Map<String, dynamic>.from(r as Map))
           .toList();
-      if (role == 'owner' || role == 'admin') {
+      if (role == 'owner' || role == 'admin' || role == 'leader') {
         final belum = rows
             .where((r) => r['clock_in'] == null && r['status'] == null)
             .length;
@@ -583,7 +585,7 @@ class _ErpShellState extends State<ErpShell> {
   /// Kasir tidak punya pemilih — cabangnya mengikuti shift yang dibuka di POS.
   Widget _buildBranchBar() {
     final u = widget.user;
-    if (!u.isAdmin || branchService.branches.isEmpty) return const SizedBox.shrink();
+    if (!u.branchScoped || branchService.branches.isEmpty) return const SizedBox.shrink();
     Widget content;
     if (u.isLockedAdmin) {
       content = Text(branchService.nameOf(u.branchId),

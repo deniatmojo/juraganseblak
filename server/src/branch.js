@@ -29,7 +29,7 @@ export async function lockedBranchId(user, conn = pool) {
     );
     if (shift?.branch_id) return Number(shift.branch_id);
   }
-  if (user.role === 'kasir' || user.role === 'admin') {
+  if (user.role === 'kasir' || user.role === 'admin' || user.role === 'gudang') {
     const [[row]] = await conn.query('SELECT branch_id FROM users WHERE id = :u', { u: user.id });
     if (row?.branch_id) return Number(row.branch_id);
     if (user.role === 'kasir') return mainBranchId(conn);
