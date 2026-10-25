@@ -247,11 +247,11 @@ export default function Pos() {
 
   const subtotal = cart.reduce((sum, c) => sum + lineTotal(c), 0)
   // Sama persis dengan server (pricing.js): pajak & layanan dibulatkan ke rupiah,
-  // lalu total dibulatkan ke atas ke kelipatan rounding_step bila diaktifkan.
+  // lalu total dibulatkan ke kelipatan rounding_step terdekat (>= setengah naik) bila diaktifkan.
   const tax = Math.round(subtotal * rates.tax_rate)
   const service = Math.round(subtotal * rates.service_rate)
   const rawTotal = subtotal + tax + service
-  const grandTotal = rates.rounding_step > 0 ? Math.ceil(rawTotal / rates.rounding_step) * rates.rounding_step : rawTotal
+  const grandTotal = rates.rounding_step > 0 ? Math.round(rawTotal / rates.rounding_step) * rates.rounding_step : rawTotal
   const rounding = grandTotal - rawTotal
   const totalQty = cart.reduce((sum, c) => sum + c.qty, 0)
 
@@ -661,7 +661,7 @@ export default function Pos() {
           <div className="flex justify-between text-sm text-char/60"><span>Subtotal</span><span>{formatRp(subtotal)}</span></div>
           <div className="flex justify-between text-sm text-char/60"><span>Pajak ({Math.round(rates.tax_rate * 100)}%)</span><span>{formatRp(tax)}</span></div>
           {/* Pembulatan digabung ke Service di tampilan (tercatat terpisah di sistem) */}
-          <div className="flex justify-between text-sm text-char/60"><span>Service Charge{rounding > 0 ? '' : ` (${Number((rates.service_rate * 100).toFixed(2))}%)`}</span><span>{formatRp(service + rounding)}</span></div>
+          <div className="flex justify-between text-sm text-char/60"><span>Service Charge{rounding !== 0 ? '' : ` (${Number((rates.service_rate * 100).toFixed(2))}%)`}</span><span>{formatRp(service + rounding)}</span></div>
           <div className="flex justify-between items-center pt-2.5 border-t border-black/5">
             <span className="font-bold">Grand Total</span>
             <span className="font-display text-2xl text-chili">{formatRp(grandTotal)}</span>

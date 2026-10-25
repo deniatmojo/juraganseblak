@@ -46,7 +46,7 @@ export default function Pembayaran() {
   const sService = Math.round(feeSample * (Number(form.service_rate) || 0))
   const sRaw = feeSample + sTax + sService
   const sStep = Number(form.rounding_step) || 0
-  const sTotal = sStep > 0 ? Math.ceil(sRaw / sStep) * sStep : sRaw
+  const sTotal = sStep > 0 ? Math.round(sRaw / sStep) * sStep : sRaw
 
   const uploadQris = async (file) => {
     if (!file) return
@@ -128,7 +128,7 @@ export default function Pembayaran() {
               className="mt-0.5 w-4 h-4 accent-chili"
             />
             <span className="text-sm">
-              <span className="font-bold">Bulatkan total ke atas per Rp1.000</span>
+              <span className="font-bold">Bulatkan total per Rp1.000 (500 ke atas naik, di bawah 500 turun)</span>
               <span className="block text-xs text-char/50 mt-0.5">Contoh: total Rp4.200 menjadi Rp5.000. Selisihnya tampil sebagai baris &ldquo;Pembulatan&rdquo; di struk dan tercatat sebagai pendapatan.</span>
             </span>
           </label>

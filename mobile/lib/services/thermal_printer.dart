@@ -41,7 +41,7 @@ class ThermalData {
   final double subtotal;
   final double tax;
   final double service;
-  final double rounding; // pembulatan ke atas (0 = tanpa pembulatan)
+  final double rounding; // pembulatan ke kelipatan terdekat, bisa negatif (0 = tanpa pembulatan)
   final double total;
   final String branch; // nama cabang (dicetak di bawah alamat bila terisi)
 

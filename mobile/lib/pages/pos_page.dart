@@ -68,7 +68,7 @@ class _PosPageState extends State<PosPage> {
   List<(String, String)> categories = [('semua', 'Semua')];
   double taxRate = 0.10;
   double serviceRate = 0.05;
-  double roundingStep = 0; // 0 = tanpa pembulatan, 1000 = naik per Rp1.000
+  double roundingStep = 0; // 0 = tanpa pembulatan, 1000 = bulatkan per Rp1.000
   String storeName = '';
   String storeAddress = '';
   String storePhone = '';
@@ -242,12 +242,12 @@ class _PosPageState extends State<PosPage> {
 
   double get subtotal => cart.fold(0.0, (s, c) => s + c.lineTotal);
   // Sama persis dengan server (pricing.js): pajak & layanan dibulatkan ke rupiah,
-  // lalu total dinaikkan ke kelipatan roundingStep bila pembulatan aktif.
+  // lalu total dibulatkan ke kelipatan roundingStep terdekat (>= setengah naik) bila pembulatan aktif.
   double get tax => (subtotal * taxRate).roundToDouble();
   double get service => (subtotal * serviceRate).roundToDouble();
   double get _rawTotal => subtotal + tax + service;
   double get grandTotal => roundingStep > 0
-      ? (_rawTotal / roundingStep).ceilToDouble() * roundingStep
+      ? (_rawTotal / roundingStep).roundToDouble() * roundingStep
       : _rawTotal;
   double get rounding => grandTotal - _rawTotal;
 
@@ -1284,7 +1284,7 @@ class _PosPageState extends State<PosPage> {
             _totalRow('Pajak (${_pct(taxRate)}%)', formatRp(tax)),
             // Pembulatan digabung ke Service di tampilan (tercatat terpisah di sistem).
             _totalRow(
-                rounding > 0
+                rounding != 0
                     ? 'Service Charge'
                     : 'Service Charge (${_pct(serviceRate)}%)',
                 formatRp(service + rounding)),

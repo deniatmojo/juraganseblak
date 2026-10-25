@@ -170,7 +170,7 @@ class _PembayaranPageState extends State<PembayaranPage> {
     final sTax = tax.round();
     final raw = sample + sService + sTax;
     final step = (num.tryParse('${form['rounding_step']}') ?? 0).toInt();
-    final total = step > 0 ? ((raw + step - 1) ~/ step) * step : raw;
+    final total = step > 0 ? (raw / step).round() * step : raw;
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,7 +212,7 @@ class _PembayaranPageState extends State<PembayaranPage> {
             value: step > 0,
             onChanged: (v) =>
                 setState(() => form['rounding_step'] = v ? '1000' : '0'),
-            title: Text('Bulatkan total ke atas per Rp1.000',
+            title: Text('Bulatkan total per Rp1.000 (500 ke atas naik, di bawah 500 turun)',
                 style: AppText.body(size: 13, weight: FontWeight.w700)),
             subtitle: Text(
                 'Contoh: total Rp4.200 menjadi Rp5.000. Selisihnya tampil sebagai baris "Pembulatan" di struk dan tercatat sebagai pendapatan.',
