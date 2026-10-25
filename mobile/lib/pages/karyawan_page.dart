@@ -276,6 +276,39 @@ class _KaryawanPageState extends State<KaryawanPage> {
     }
   }
 
+  /// Reset HP terdaftar (anti titip absen): HP berikutnya yang dipakai login jadi HP baru.
+  Future<void> _resetDevice(Map<String, dynamic> u) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text('Reset HP terdaftar?', style: AppText.display(size: 16)),
+        content: Text(
+            '${u['name']}: HP berikutnya yang dipakai login di aplikasi akan menjadi HP baru akun ini.',
+            style: AppText.body(size: 12, color: Colors.black54)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.chili, elevation: 0),
+            onPressed: () => Navigator.pop(d, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await api.del('/users/${u['id']}/device');
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
   Future<void> _toggleUser(Map<String, dynamic> u) async {
     final active = u['is_active'] == 1 || u['is_active'] == true;
     final ok = await showDialog<bool>(
@@ -576,6 +609,12 @@ class _KaryawanPageState extends State<KaryawanPage> {
                           : StatusChip('Nonaktif',
                               fg: Colors.black45,
                               bg: Colors.black.withValues(alpha: 0.05)),
+                      if (u['device_bound'] == 1 || u['device_bound'] == true)
+                        IconButton(
+                          tooltip: 'Reset HP terdaftar',
+                          icon: const Icon(Icons.phonelink_erase_outlined, size: 20),
+                          onPressed: () => _resetDevice(u),
+                        ),
                       if ('${u['id']}' != '${widget.user.id}')
                         IconButton(
                           tooltip: 'Ubah role',

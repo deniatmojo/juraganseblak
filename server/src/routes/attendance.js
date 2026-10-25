@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireRole } from '../auth.js';
+import { requireBoundDevice } from '../device.js';
 import { todayWib, wibMinutes } from '../wib.js';
 
 const router = Router();
@@ -174,7 +175,7 @@ router.get('/recap', async (req, res, next) => {
 });
 
 // POST /api/attendance/clock-in
-router.post('/clock-in', async (req, res, next) => {
+router.post('/clock-in', requireBoundDevice, async (req, res, next) => {
   try {
     const empId = await resolveEmployee(req);
     if (!empId) return res.status(400).json({ error: 'Akun Anda belum terhubung ke data karyawan. Hubungi admin.' });
@@ -213,7 +214,7 @@ router.post('/clock-in', async (req, res, next) => {
 });
 
 // POST /api/attendance/clock-out
-router.post('/clock-out', async (req, res, next) => {
+router.post('/clock-out', requireBoundDevice, async (req, res, next) => {
   try {
     const empId = await resolveEmployee(req);
     if (!empId) return res.status(400).json({ error: 'Akun Anda belum terhubung ke data karyawan. Hubungi admin.' });

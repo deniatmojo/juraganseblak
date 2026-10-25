@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { signToken, requireAuth } from '../auth.js';
+import { LOCKED_ROLES, deviceIdFrom, checkDevice } from '../device.js';
 
 const router = Router();
 
@@ -18,6 +19,18 @@ router.post('/login', async (req, res, next) => {
     // Pesan generik: jangan bocorkan email mana yang terdaftar.
     if (!user || !user.is_active || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Email atau password salah' });
+    }
+
+    // Role absen-saja terkunci ke satu HP Android: login dari HP lain / HP milik akun lain ditolak.
+    // (Login dari browser tanpa X-Device-Id tetap boleh, tetapi tidak bisa absen.)
+    const deviceId = deviceIdFrom(req);
+    if (LOCKED_ROLES.includes(user.role) && deviceId) {
+      try {
+        await checkDevice(user, deviceId, req.headers['x-device-name']);
+      } catch (e) {
+        if (e.status) return res.status(e.status).json({ error: e.message });
+        throw e;
+      }
     }
 
     const logged = { id: user.id, name: user.name, email: user.email, role: user.role, branch_id: user.branch_id ?? null };

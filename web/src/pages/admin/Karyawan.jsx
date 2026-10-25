@@ -72,6 +72,14 @@ export default function Karyawan() {
     } catch (err) { setError(err.message); load() }
   }
 
+  const resetDevice = async (u) => {
+    if (!window.confirm(`Reset HP terdaftar untuk ${u.name}? HP berikutnya yang dipakai login di aplikasi akan menjadi HP baru akun ini.`)) return
+    try {
+      await api.del(`/users/${u.id}/device`)
+      load()
+    } catch (err) { setError(err.message) }
+  }
+
   const toggleUser = async (u) => {
     const action = u.is_active ? 'Nonaktifkan' : 'Aktifkan'
     if (!window.confirm(`${action} akun ${u.email}?`)) return
@@ -213,6 +221,9 @@ export default function Karyawan() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-right space-x-3 whitespace-nowrap">
+                    {u.device_bound ? (
+                      <button onClick={() => resetDevice(u)} title={`HP terdaftar: ${u.device_name || 'Android'}`} className="text-char/70 hover:text-char font-semibold text-xs">Reset HP</button>
+                    ) : ['karyawan', 'gudang', 'leader'].includes(u.role) && <span className="text-[11px] text-char/30">HP belum terdaftar</span>}
                     <button onClick={() => setResetTarget({ ...u, password: '' })} className="text-char/70 hover:text-char font-semibold text-xs">Reset Password</button>
                     <button onClick={() => toggleUser(u)} className="text-chili hover:underline font-semibold text-xs">
                       {u.is_active ? 'Nonaktifkan' : 'Aktifkan'}

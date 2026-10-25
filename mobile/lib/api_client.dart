@@ -18,6 +18,11 @@ class ApiClient {
   /// perlu disuntik (kasir, akun terkunci cabang).
   String? Function()? branchProvider;
 
+  /// ANDROID_ID perangkat (diisi di main()) — dikirim di semua request supaya
+  /// server bisa mengunci absen karyawan ke satu HP.
+  String? deviceId;
+  String? deviceName;
+
   bool _followsBranch(String path) => _branchPaths.any(
       (p) => path == p || path.startsWith('$p/') || path.startsWith('$p?'));
 
@@ -71,6 +76,8 @@ class ApiClient {
     final headers = <String, String>{
       if (body != null) 'Content-Type': 'application/json',
       if (_token != null) 'Authorization': 'Bearer $_token',
+      if (deviceId != null) 'X-Device-Id': deviceId!,
+      if (deviceName != null) 'X-Device-Name': deviceName!,
     };
     try {
       switch (method) {

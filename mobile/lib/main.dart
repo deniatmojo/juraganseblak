@@ -1,3 +1,4 @@
+import 'package:android_id/android_id.dart';
 import 'package:flutter/material.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
@@ -6,8 +7,12 @@ import 'theme.dart';
 import 'pages/login_screen.dart';
 import 'pages/erp_shell.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    api.deviceId = await const AndroidId().getId();
+    api.deviceName = 'Android';
+  } catch (_) {}
   api.onUnauthorized = () => authService.logout();
   api.branchProvider = () => branchService.paramFor(authService.user);
   runApp(const JuraganSeblakApp());

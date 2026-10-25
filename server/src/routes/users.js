@@ -25,8 +25,10 @@ const ROLES = ['owner', 'admin', 'kasir', 'karyawan', 'gudang', 'leader'];
 router.get('/', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at, u.branch_id, b.name AS branch_name
-       FROM users u LEFT JOIN branches b ON b.id = u.branch_id ORDER BY u.id`
+      `SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at, u.branch_id, b.name AS branch_name,
+              (d.user_id IS NOT NULL) AS device_bound, d.device_name, d.bound_at AS device_bound_at
+       FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+       LEFT JOIN user_devices d ON d.user_id = u.id ORDER BY u.id`
     );
     res.json(rows);
   } catch (e) { next(e); }
@@ -81,6 +83,14 @@ router.patch('/:id', async (req, res, next) => {
     const [[user]] = await pool.query('SELECT id, name, email, role, is_active, branch_id FROM users WHERE id = :id', { id });
     if (!user) return res.status(404).json({ error: 'Akun tidak ditemukan' });
     res.json(user);
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/users/:id/device — reset kunci HP (HP ganti / hilang); HP baru terdaftar saat login berikutnya
+router.delete('/:id/device', async (req, res, next) => {
+  try {
+    await pool.query('DELETE FROM user_devices WHERE user_id = :id', { id: Number(req.params.id) });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
