@@ -19,6 +19,9 @@ export default function Order() {
   // Cabang tujuan (delivery/pickup/reservasi). Pesanan dari QR meja ikut cabang meja.
   const [branches, setBranches] = useState([])
   const [branchId, setBranchId] = useState('')
+  // Grup topping (Top Frozen / Bakso / Top Kering) tertutup dulu; klik judul untuk membuka
+  const [openGroups, setOpenGroups] = useState(() => new Set())
+  const toggleGroup = (k) => setOpenGroups((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const [cart, setCart] = useState({}) // { product_id: qty } — item biasa (minuman)
   // Seblak prasmanan: porsi yang sudah masuk keranjang + draft racikan aktif.
   // Satu porsi = 1 jenis kuah (WAJIB) + topping bebas + jumlah porsi.
@@ -371,7 +374,16 @@ export default function Order() {
                       const newGroup = idx === 0 || toppingItems[idx - 1].category !== t.category
                       return (
                         <Fragment key={t.id}>
-                        {newGroup && <p className="text-[11px] font-bold uppercase tracking-wide text-chili pt-2">{t.category}</p>}
+                        {newGroup && (
+                          <button type="button" onClick={() => toggleGroup(t.category)} className="w-full flex items-center justify-between rounded-xl bg-cream px-3 py-2.5 mt-1 text-left">
+                            <span className="text-xs font-bold uppercase tracking-wide text-chili">{t.category} <span className="text-char/40 normal-case font-semibold">· {toppingItems.filter((x) => x.category === t.category).length} item</span></span>
+                            <span className="flex items-center gap-2">
+                              {toppingItems.filter((x) => x.category === t.category && draft.toppings[x.id] > 0).length > 0 && <span className="bg-chili text-white text-[10px] font-bold rounded-full px-2 py-0.5">{toppingItems.filter((x) => x.category === t.category && draft.toppings[x.id] > 0).length} dipilih</span>}
+                              <span className={`text-char/50 transition-transform ${openGroups.has(t.category) ? 'rotate-180' : ''}`}>▾</span>
+                            </span>
+                          </button>
+                        )}
+                        {openGroups.has(t.category) && (
                         <div className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
                           <button type="button" onClick={() => toggleDraftTopping(t.id)} className="flex-1 text-left min-w-0">
                             <span className="text-sm font-semibold">{t.name}</span>
@@ -387,6 +399,7 @@ export default function Order() {
                             </div>
                           )}
                         </div>
+                        )}
                         </Fragment>
                       )
                     })}

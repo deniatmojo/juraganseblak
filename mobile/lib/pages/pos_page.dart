@@ -2224,6 +2224,7 @@ class _PorsiBuilderSheet extends StatefulWidget {
 class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
   Product? kuah;
   final Map<int, int> toppings = {}; // product_id topping -> qty
+  final Set<String> openGroups = {}; // grup topping yang dibuka (default tertutup)
   int qty = 1;
   final noteCtrl = TextEditingController();
   String? error;
@@ -2268,6 +2269,48 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
     ];
     widget.onAdd(kuah!, sel, qty, noteCtrl.text);
     Navigator.pop(context);
+  }
+
+  /// Judul grup topping (Top Frozen / Bakso / Top Kering) — ketuk untuk buka/tutup.
+  Widget _toppingGroupHeader(Product t) {
+    final inGroup =
+        widget.toppingItems.where((x) => x.category == t.category).toList();
+    final picked = inGroup.where((x) => (toppings[x.id] ?? 0) > 0).length;
+    final open = openGroups.contains(t.category);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() {
+          if (!openGroups.remove(t.category)) openGroups.add(t.category);
+        }),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+              color: AppColors.cream, borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Expanded(
+              child: Text('${t.categoryLabel.toUpperCase()}  ·  ${inGroup.length} item',
+                  style: AppText.body(
+                      size: 11, weight: FontWeight.w800, color: AppColors.chili)),
+            ),
+            if (picked > 0)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                    color: AppColors.chili,
+                    borderRadius: BorderRadius.circular(10)),
+                child: Text('$picked dipilih',
+                    style: AppText.body(
+                        size: 10, weight: FontWeight.w700, color: Colors.white)),
+              ),
+            Icon(open ? Icons.expand_less : Icons.expand_more,
+                size: 20, color: Colors.black45),
+          ]),
+        ),
+      ),
+    );
   }
 
   @override
@@ -2405,14 +2448,8 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
                   for (final (i, t) in widget.toppingItems.indexed) ...[
                     if (i == 0 ||
                         widget.toppingItems[i - 1].category != t.category)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6, bottom: 6),
-                        child: Text(t.categoryLabel.toUpperCase(),
-                            style: AppText.body(
-                                size: 11,
-                                weight: FontWeight.w800,
-                                color: AppColors.chili)),
-                      ),
+                      _toppingGroupHeader(t),
+                    if (openGroups.contains(t.category))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Container(

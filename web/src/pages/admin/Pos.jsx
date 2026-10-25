@@ -68,6 +68,9 @@ export default function Pos() {
 
   // Shift kasir
   const [shift, setShift] = useState(null)
+  // Grup topping tertutup dulu; klik judul untuk membuka
+  const [openGroups, setOpenGroups] = useState(() => new Set())
+  const toggleGroup = (k) => setOpenGroups((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const [shiftModal, setShiftModal] = useState(null)   // 'open' | 'close'
   const [shiftCash, setShiftCash] = useState('')
   const [shiftResult, setShiftResult] = useState(null) // rekap tutup shift
@@ -750,7 +753,16 @@ export default function Pos() {
                       const newGroup = idx === 0 || toppingItems[idx - 1].cat !== t.cat
                       return (
                         <Fragment key={t.id}>
-                        {newGroup && <p className="text-[11px] font-bold uppercase tracking-wide text-chili pt-2">{t.catLabel}</p>}
+                        {newGroup && (
+                          <button type="button" onClick={() => toggleGroup(t.cat)} className="w-full flex items-center justify-between rounded-xl bg-cream px-3 py-2.5 mt-1 text-left">
+                            <span className="text-xs font-bold uppercase tracking-wide text-chili">{t.catLabel} <span className="text-char/40 normal-case font-semibold">· {toppingItems.filter((x) => x.cat === t.cat).length} item</span></span>
+                            <span className="flex items-center gap-2">
+                              {toppingItems.filter((x) => x.cat === t.cat && porsiDraft.toppings[x.id] > 0).length > 0 && <span className="bg-chili text-white text-[10px] font-bold rounded-full px-2 py-0.5">{toppingItems.filter((x) => x.cat === t.cat && porsiDraft.toppings[x.id] > 0).length} dipilih</span>}
+                              <span className={`text-char/50 transition-transform ${openGroups.has(t.cat) ? 'rotate-180' : ''}`}>▾</span>
+                            </span>
+                          </button>
+                        )}
+                        {openGroups.has(t.cat) && (
                         <div className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
                           <button type="button" onClick={() => toggleDraftTopping(t.id)} className="flex-1 text-left min-w-0">
                             <span className="text-sm font-semibold">{t.name}</span>
@@ -766,6 +778,7 @@ export default function Pos() {
                             </div>
                           )}
                         </div>
+                        )}
                         </Fragment>
                       )
                     })}
