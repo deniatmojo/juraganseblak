@@ -43,6 +43,7 @@ export default function Pos() {
   const uidRef = useRef(1)
   const [selectedPay, setSelectedPay] = useState('cash')
   const [receipt, setReceipt] = useState(null)
+  const [customerName, setCustomerName] = useState('') // atas nama pemesan (wajib, tercetak di struk)
   // Pekerjaan cetak termal: { kind: 'struk' | 'dapur', data } — dirender ke
   // #thermalPrintArea (58mm) lalu window.print().
   const [printJob, setPrintJob] = useState(null)
@@ -270,6 +271,9 @@ export default function Pos() {
     // Item dari respons server (sudah berisi porsi_no/item_role) — dipakai
     // juga untuk cetak ulang dari antrian sehingga struk selalu konsisten.
     setReceipt({
+      id: order.id,
+      customer: order.customer_name,
+      printCount: Number(order.print_count) || 0,
       no: order.order_no,
       date: new Date(order.created_at || Date.now()).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }),
       items: order.items || [],
@@ -294,6 +298,7 @@ export default function Pos() {
         items: buildItemsPayload(),
         pay_method: selectedPay,
         channel: 'pos',
+        customer_name: customerName.trim(),
       })
       setReceiptFromOrder(order)
     } catch (e) {
@@ -314,6 +319,7 @@ export default function Pos() {
         pay_method: 'qris',
         channel: 'pos',
         pending: true,
+        customer_name: customerName.trim(),
       })
       const payment = await api.post('/payments/create', { order_id: order.id })
       setPayModal({ type: 'gateway', order, payment })
@@ -326,6 +332,11 @@ export default function Pos() {
 
   // Titik masuk tombol Bayar — pilih alur sesuai metode & konfigurasi.
   const startCheckout = () => {
+    if (!customerName.trim()) {
+      setError('Isi "Atas nama" pemesan dulu — tanyakan nama pelanggan.')
+      return
+    }
+    setError('')
     // QRIS dinamis via gateway: pesanan 'pending' memang dibuat dulu (butuh
     // nomor order di QR), pelunasannya via webhook / konfirmasi manual.
     if (selectedPay === 'qris' && paySettings.gateway && paySettings.gateway !== 'none') {
@@ -370,6 +381,7 @@ export default function Pos() {
     setReceipt(null)
     setPrintJob(null)
     setCart([])
+    setCustomerName('')
   }
 
   // QR berisi nomor struk — digambar ke canvas saat struk muncul
@@ -437,13 +449,25 @@ export default function Pos() {
     }
   }
 
+  // Struk pelanggan: tiap cetak dicatat di server; cetakan ke-2 dst (mis. printer error)
+  // diberi tanda besar "CETAKAN KE-N" agar struk ganda tidak bisa dipakai ulang.
+  const printStruk = async (data) => {
+    const done = data.printCount || 0
+    if (done >= 1 && !window.confirm(`Struk ini sudah pernah dicetak ${done}x. Cetak ulang akan diberi tanda "CETAKAN KE-${done + 1}". Lanjut?`)) return
+    try {
+      const r = await api.post(`/orders/${data.id}/print`, {})
+      setReceipt((x) => (x && x.id === data.id ? { ...x, printCount: r.print_count } : x))
+      setPrintJob({ kind: 'struk', data: { ...data, printCount: r.print_count } })
+    } catch (e) { setError(e.message) }
+  }
+
   // Ambil detail pesanan dari antrian lalu cetak struk / resep dapur termal
   const printFromQueue = async (o, kind) => {
     try {
       const detail = await api.get(`/orders/${o.id}`)
-      setPrintJob({
-        kind,
-        data: {
+      const data = {
+          id: detail.id,
+          printCount: Number(detail.print_count) || 0,
           no: detail.order_no,
           date: new Date(detail.created_at || Date.now()).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
           cashier: detail.cashier_name,
@@ -457,8 +481,9 @@ export default function Pos() {
           rounding: Number(detail.rounding_amount) || 0,
           total: detail.total,
           method: payLabels[detail.pay_method] || detail.pay_method,
-        },
-      })
+      }
+      if (kind === 'struk') await printStruk(data)
+      else setPrintJob({ kind, data })
     } catch (e) {
       setError(e.message)
     }
@@ -680,6 +705,16 @@ export default function Pos() {
         </div>
 
         <div className="px-6 pb-6 shrink-0">
+          <label className="block text-xs font-bold text-char/50 mb-1.5" htmlFor="posCustomer">Atas nama <span className="text-chili">*</span> <span className="font-normal text-char/40">(tanyakan ke pelanggan)</span></label>
+          <input
+            id="posCustomer"
+            type="text"
+            maxLength={60}
+            value={customerName}
+            onChange={(e) => setCustomerName(e.target.value)}
+            placeholder="mis. Budi"
+            className="w-full border border-black/15 rounded-xl px-4 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-chili/30 focus:border-chili"
+          />
           <p className="text-xs font-bold text-char/50 mb-2.5">Metode Pembayaran</p>
           <div className="grid grid-cols-2 gap-2.5 mb-5">
             {payMethods.map((m) => (
@@ -1129,9 +1164,9 @@ export default function Pos() {
             </div>
 
             <div className="flex gap-3 px-7 pb-7 pt-1">
-              <button onClick={() => setPrintJob({ kind: 'struk', data: { ...receipt, cashier: user?.name } })} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Struk untuk pelanggan (termal 58mm)">
+              <button onClick={() => printStruk({ ...receipt, cashier: user?.name })} className="flex-1 bg-char text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Struk untuk pelanggan (termal 58mm)">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 9V4h12v5M6 18h12v3H6v-3zm-3-9h18a1 1 0 011 1v6a1 1 0 01-1 1h-3v-3H6v3H3a1 1 0 01-1-1v-6a1 1 0 011-1z" /></svg>
-                Cetak Struk
+                {receipt.printCount > 0 ? `Cetak Ulang Struk (ke-${receipt.printCount + 1})` : 'Cetak Struk'}
               </button>
               <button onClick={() => setPrintJob({ kind: 'dapur', data: { ...receipt, cashier: user?.name } })} className="flex-1 bg-ember hover:bg-ember/90 text-white font-bold py-3 rounded-full text-sm flex items-center justify-center gap-2" title="Resep pesanan untuk koki (tanpa harga, termal 58mm)">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
@@ -1160,7 +1195,14 @@ export default function Pos() {
                 {printJob.data.storeAddress && <p className="th-small">{printJob.data.storeAddress}</p>}
                 {printJob.data.storePhone && <p className="th-small">Telp: {printJob.data.storePhone}</p>}
               </div>
+              {printJob.data.printCount > 1 && (
+                <div className="th-center" style={{ border: '2px solid #000', margin: '4px 0', padding: '4px 0' }}>
+                  <p className="th-title" style={{ fontSize: '18px' }}>CETAKAN KE-{printJob.data.printCount}</p>
+                  <p className="th-small">BUKAN STRUK ASLI</p>
+                </div>
+              )}
               <div className="th-cut"></div>
+              {printJob.data.customer && <div className="th-row th-bold"><span>Atas Nama</span><span>{printJob.data.customer}</span></div>}
               <div className="th-row th-small"><span>No. Struk</span><span>{printJob.data.no}</span></div>
               <div className="th-row th-small"><span>Kasir</span><span>{printJob.data.cashier || '-'}</span></div>
               <div className="th-row th-small"><span>Tanggal</span><span>{printJob.data.date}</span></div>

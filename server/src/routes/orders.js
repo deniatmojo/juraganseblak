@@ -8,6 +8,19 @@ import { computeTotals } from '../pricing.js';
 
 const router = Router();
 
+// Migrasi ringan: hitungan cetak struk per pesanan (cetakan ke-2 dst diberi tanda di struk).
+(async () => {
+  try {
+    const [[col]] = await pool.query(
+      `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'print_count'`
+    );
+    if (!col.n) await pool.query('ALTER TABLE orders ADD COLUMN print_count INT UNSIGNED NOT NULL DEFAULT 0');
+  } catch (e) {
+    console.error('Migrasi orders.print_count gagal:', e.message);
+  }
+})();
+
 async function getSettings() {
   const [rows] = await pool.query('SELECT `key`, `value` FROM settings');
   const s = {};
@@ -83,13 +96,15 @@ export function parseOrderItems(items) {
 router.post('/', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { items, pay_method = 'cash', paid_amount = null, customer_name = null, table_no = null, channel = 'pos', discount = 0, pending = false } = req.body;
+    const { items, pay_method = 'cash', paid_amount = null, customer_name: rawName = null, table_no = null, channel = 'pos', discount = 0, pending = false } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Keranjang kosong' });
     }
     if (!['cash', 'qris', 'debit'].includes(pay_method)) {
       return res.status(400).json({ error: 'Metode bayar tidak valid' });
     }
+    // Nama pemesan (tercetak di struk): dirapikan & dibatasi 60 karakter.
+    const customer_name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
     const parsed = parseOrderItems(items);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
     const lines = parsed.lines;
@@ -290,6 +305,18 @@ router.get('/:id', async (req, res, next) => {
       total: Number(order.total),
       items: items.map((i) => ({ ...i, unit_price: Number(i.unit_price) })),
     });
+  } catch (e) { next(e); }
+});
+
+// POST /api/orders/:id/print — catat satu kali cetak struk pelanggan. Mengembalikan
+// print_count terbaru; cetakan ke-2 dan seterusnya diberi tanda besar di struk.
+router.post('/:id/print', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const [result] = await pool.query('UPDATE orders SET print_count = print_count + 1 WHERE id = :id', { id });
+    if (!result.affectedRows) return res.status(404).json({ error: 'Pesanan tidak ditemukan' });
+    const [[row]] = await pool.query('SELECT print_count FROM orders WHERE id = :id', { id });
+    res.json({ print_count: Number(row.print_count) });
   } catch (e) { next(e); }
 });
 

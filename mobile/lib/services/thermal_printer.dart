@@ -44,6 +44,7 @@ class ThermalData {
   final double rounding; // pembulatan ke kelipatan terdekat, bisa negatif (0 = tanpa pembulatan)
   final double total;
   final String branch; // nama cabang (dicetak di bawah alamat bila terisi)
+  final int printCount; // cetakan ke-N struk (>1 = diberi tanda CETAKAN KE-N)
 
   const ThermalData({
     required this.kind,
@@ -64,6 +65,7 @@ class ThermalData {
     this.rounding = 0,
     required this.total,
     this.branch = '',
+    this.printCount = 0,
   });
 }
 
@@ -330,7 +332,13 @@ class ThermalPrinter {
       if (d.storeAddress.isNotEmpty) out.add(center(d.storeAddress));
       if (d.branch.isNotEmpty) out.add(center('Cabang: ${d.branch}'));
       if (d.storePhone.isNotEmpty) out.add(center('Telp: ${d.storePhone}'));
+      if (d.printCount > 1) {
+        out.add(line);
+        out.add(center('*** CETAKAN KE-${d.printCount} ***'));
+        out.add(center('BUKAN STRUK ASLI'));
+      }
       out.add(line);
+      if (d.customer != null && d.customer!.isNotEmpty) out.add(row('Atas Nama', d.customer!));
       out.add(row('No. Struk', d.no));
       out.add(row('Kasir', d.cashier.isEmpty ? '-' : d.cashier));
       out.add(row('Tanggal', d.date));
@@ -481,6 +489,7 @@ class ThermalPrinter {
         rounding: d.rounding,
         total: d.total,
         branch: _clean(d.branch),
+        printCount: d.printCount,
       );
 
   static Future<bool> _connectSaved() async {
@@ -662,7 +671,23 @@ class ThermalPrinter {
       b.add(gen.text('Telp: ${d.storePhone}',
           styles: const PosStyles(align: PosAlign.center)));
     }
+    if (d.printCount > 1) {
+      // Cetakan ulang (mis. printer error) — tanda besar agar struk ganda tidak dipakai ulang.
+      b.add(gen.hr(ch: '=', linesAfter: 0));
+      b.add(gen.text('CETAKAN KE-${d.printCount}',
+          styles: const PosStyles(
+              align: PosAlign.center,
+              bold: true,
+              height: PosTextSize.size2,
+              width: PosTextSize.size2)));
+      b.add(gen.text('BUKAN STRUK ASLI',
+          styles: const PosStyles(align: PosAlign.center, bold: true)));
+      b.add(gen.hr(ch: '=', linesAfter: 0));
+    }
     b.add(gen.hr(ch: '-', linesAfter: 1));
+    if (d.customer != null && d.customer!.isNotEmpty) {
+      b.add(_row(gen, 'Atas Nama', d.customer!, bold: true));
+    }
     b.add(_row(gen, 'No. Struk', d.no));
     b.add(_row(gen, 'Kasir', d.cashier.isEmpty ? '-' : d.cashier));
     b.add(_row(gen, 'Tanggal', d.date));

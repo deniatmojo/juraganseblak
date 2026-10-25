@@ -86,6 +86,8 @@ class _PosPageState extends State<PosPage> {
   String qrisImage = '';
   String qrisMerchant = '';
   Map<String, dynamic> settingsMap = {};
+  final customerCtrl = TextEditingController(); // atas nama pemesan (wajib, tercetak di struk)
+  final Map<int, int> _printed = {}; // order id -> jumlah cetak struk (sesi ini)
 
   // QRIS statis sesuai cabang shift yang dibuka (fallback ke QRIS umum)
   String get curQrisImage {
@@ -300,6 +302,11 @@ class _PosPageState extends State<PosPage> {
           : 'Shift belum dibuka di cabang ini. Buka shift dulu untuk menerima pesanan.');
       return;
     }
+    if (customerCtrl.text.trim().isEmpty) {
+      setState(() => error = 'Isi "Atas nama" pemesan dulu — tanyakan nama pelanggan.');
+      return;
+    }
+    setState(() => error = null);
     if (payMethod == 'qris' && gateway != 'none') {
       createGatewayOrder();
       return;
@@ -334,6 +341,7 @@ class _PosPageState extends State<PosPage> {
       ];
 
   Future<void> createOrder() async {
+    final name = customerCtrl.text.trim();
     setState(() {
       submitting = true;
       error = null;
@@ -343,6 +351,7 @@ class _PosPageState extends State<PosPage> {
         'items': _itemsPayload(),
         'pay_method': payMethod,
         'channel': 'pos',
+        'customer_name': name,
       });
       final o = Map<String, dynamic>.from(order as Map);
       if (!mounted) return;
@@ -369,6 +378,7 @@ class _PosPageState extends State<PosPage> {
         'pay_method': 'qris',
         'channel': 'pos',
         'pending': true,
+        'customer_name': customerCtrl.text.trim(),
       });
       final o = Map<String, dynamic>.from(order as Map);
       final payment = await api.post('/payments/create', {'order_id': o['id']});
@@ -473,6 +483,7 @@ class _PosPageState extends State<PosPage> {
   // ---------- RECEIPT ----------
 
   void _showReceipt(Map<String, dynamic> o) {
+    customerCtrl.clear();
     // Keranjang dikosongkan SEKARANG — saat pesanan sudah tersimpan — bukan
     // saat dialog ditutup. Baris struk diambil dari respons server
     // (berisi porsi_no/item_role), sehingga struk baru & cetak ulang dari
@@ -568,6 +579,39 @@ class _PosPageState extends State<PosPage> {
       {String? cashierOverride}) async {
     num n(String k) => num.tryParse('${o[k]}') ?? 0;
     try {
+      // Struk pelanggan dicatat per cetak; cetakan ke-2 dst diberi tanda besar di struk.
+      var printCount = 0;
+      if (kind == 'struk') {
+        final id = int.tryParse('${o['id']}') ?? 0;
+        final done = [_printed[id] ?? 0, int.tryParse('${o['print_count']}') ?? 0]
+            .reduce((a, b) => a > b ? a : b);
+        if (done >= 1) {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (d) => AlertDialog(
+              title: Text('Cetak ulang struk?', style: AppText.display(size: 16)),
+              content: Text(
+                  'Struk ini sudah pernah dicetak ${done}x. Cetak ulang akan diberi tanda "CETAKAN KE-${done + 1}".',
+                  style: AppText.body(size: 12, color: Colors.black54)),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(d, false),
+                    child: const Text('Batal')),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.chili, elevation: 0),
+                  onPressed: () => Navigator.pop(d, true),
+                  child: const Text('Cetak Ulang'),
+                ),
+              ],
+            ),
+          );
+          if (ok != true) return;
+        }
+        final r = await api.post('/orders/$id/print', {});
+        printCount = int.tryParse('${(r as Map)['print_count']}') ?? done + 1;
+        _printed[id] = printCount;
+      }
       await ThermalPrinter.print(
         context,
         ThermalData(
@@ -596,6 +640,7 @@ class _PosPageState extends State<PosPage> {
           rounding: n('rounding_amount').toDouble(),
           total: n('total').toDouble(),
           branch: _branchNameOf(o),
+          printCount: printCount,
         ),
       );
       if (mounted) {
@@ -1320,6 +1365,16 @@ class _PosPageState extends State<PosPage> {
                 Text(formatRp(grandTotal),
                     style: AppText.display(size: 22, color: AppColors.chili)),
               ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: customerCtrl,
+              maxLength: 60,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                  labelText: 'Atas nama *',
+                  hintText: 'Tanyakan nama pelanggan, mis. Budi',
+                  counterText: ''),
             ),
             const SizedBox(height: 12),
             Row(
