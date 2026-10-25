@@ -368,6 +368,10 @@ export default function Order() {
                   </div>
 
                   <p className="text-xs font-bold text-char/60 mb-2">2. Isian / Topping — sesuai selera</p>
+                  <div role="note" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 mb-3 text-xs text-amber-900">
+                    <svg className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                    <p><strong>Perhatian:</strong> apabila stok topping habis, akan diganti dengan topping lain dengan harga yang sama.</p>
+                  </div>
                   <div className="space-y-1.5 mb-5">
                     {toppingItems.map((t, idx) => {
                       const qty = draft.toppings[t.id] || 0
