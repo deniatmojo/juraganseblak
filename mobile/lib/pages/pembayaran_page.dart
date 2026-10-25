@@ -22,7 +22,8 @@ class _PembayaranPageState extends State<PembayaranPage> {
   Map<String, dynamic> form = {};
   bool loading = true;
   bool saving = false;
-  bool uploading = false;
+  String uploadingKey = ''; // kunci setting QRIS yang sedang diunggah
+  List<Map<String, dynamic>> branches = [];
   String? msg;
   String? error;
 
@@ -75,6 +76,10 @@ class _PembayaranPageState extends State<PembayaranPage> {
   Future<void> _load() async {
     setState(() { loading = true; error = null; });
     try {
+      try {
+        final rows = await api.get('/branch-options') as List;
+        branches = rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } catch (_) {}
       final s = await api.get('/settings');
       if (mounted) {
         setState(() => form = Map<String, dynamic>.from(s as Map));
@@ -92,12 +97,12 @@ class _PembayaranPageState extends State<PembayaranPage> {
 
   /// Upload gambar QRIS statis — padanan uploadQris() web (POST /api/upload
   /// multipart 'photo', hasil {url} diset ke qris_static_image).
-  Future<void> _uploadQris() async {
+  Future<void> _uploadQris(String key) async {
     try {
       final img = await ImagePicker().pickImage(
           source: ImageSource.gallery, imageQuality: 90, maxWidth: 1200);
       if (img == null) return;
-      setState(() { uploading = true; error = null; });
+      setState(() { uploadingKey = key; error = null; });
       final bytes = await File(img.path).readAsBytes();
       final ext = img.path.toLowerCase().endsWith('.png')
           ? 'png'
@@ -110,14 +115,14 @@ class _PembayaranPageState extends State<PembayaranPage> {
           bytes: bytes,
           contentType: 'image/$ext');
       if (mounted) {
-        setState(() => form['qris_static_image'] = '${data['url']}');
+        setState(() => form[key] = '${data['url']}');
       }
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
-      if (mounted) setState(() => uploading = false);
+      if (mounted) setState(() => uploadingKey = '');
     }
   }
 
@@ -134,6 +139,10 @@ class _PembayaranPageState extends State<PembayaranPage> {
             : '0',
       };
       body.removeWhere((k, v) => v == '');
+      for (final k in form.keys.where(
+          (k) => RegExp(r'^qris_static_(image|merchant)_b\d+$').hasMatch(k))) {
+        body[k] = '${form[k] ?? ''}'.trim();
+      }
       for (final k in [
         'qris_static_image',
         'qris_static_merchant',
@@ -160,6 +169,73 @@ class _PembayaranPageState extends State<PembayaranPage> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  Widget _qrisBlock(String title, String imgKey, String? merKey) {
+    final img = _imgUrl(form[imgKey]);
+    final busy = uploadingKey == imgKey;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: AppText.body(size: 13, weight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 110,
+            height: 110,
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.black12)),
+            child: img.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(img,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.broken_image_outlined)))
+                : Center(
+                    child: Text('Belum ada gambar QRIS',
+                        textAlign: TextAlign.center,
+                        style: AppText.body(size: 10, color: Colors.black38))),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.char,
+                    side: const BorderSide(color: Colors.black12),
+                    minimumSize: const Size.fromHeight(44)),
+                onPressed: uploadingKey.isNotEmpty ? null : () => _uploadQris(imgKey),
+                icon: busy
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.upload_outlined, size: 16),
+                label: Text(busy ? 'Mengunggah...' : 'Upload Gambar QRIS',
+                    style: AppText.body(size: 12, weight: FontWeight.w700)),
+              ),
+              if (merKey != null) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: ValueKey(merKey),
+                  initialValue: '${form[merKey] ?? ''}',
+                  onChanged: (v) => form[merKey] = v,
+                  decoration: const InputDecoration(
+                      labelText: 'Nama Merchant (opsional)',
+                      helperText: 'Tampil di modal QR kasir'),
+                ),
+              ],
+            ]),
+          ),
+        ]),
+      ]),
+    );
   }
 
   Widget _feeCard() {
@@ -235,7 +311,6 @@ class _PembayaranPageState extends State<PembayaranPage> {
           child: CircularProgressIndicator(color: AppColors.chili));
     }
     final gateway = '${form['payment_gateway'] ?? 'none'}';
-    final qrisImg = _imgUrl(form['qris_static_image']);
 
     return RefreshIndicator(
       color: AppColors.chili,
@@ -251,69 +326,22 @@ class _PembayaranPageState extends State<PembayaranPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('QRIS Statis', style: AppText.display(size: 18)),
+                Text('QRIS Statis per Cabang', style: AppText.display(size: 18)),
                 const SizedBox(height: 6),
                 Text(
-                  'Gambar QRIS statis dari bank / e-wallet merchant Anda. Kasir akan menampilkan QR ini sebelum transaksi QRIS, lalu konfirmasi manual setelah pembayaran diterima.',
+                  'Tiap cabang punya QRIS statis sendiri. Kasir menampilkan QRIS cabang shift yang dibuka; pelanggan online melihat QRIS cabang pesanannya. Konfirmasi manual setelah pembayaran diterima.',
                   style: AppText.body(size: 12, color: Colors.black54),
                 ),
-                const SizedBox(height: 14),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  // Preview QRIS (web Pembayaran.jsx:93-97)
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.black12)),
-                    child: qrisImg.isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Image.network(qrisImg,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const Icon(
-                                    Icons.broken_image_outlined)))
-                        : Center(
-                            child: Text('Belum ada gambar QRIS',
-                                textAlign: TextAlign.center,
-                                style: AppText.body(
-                                    size: 10, color: Colors.black38))),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.char,
-                            side: const BorderSide(color: Colors.black12),
-                            minimumSize: const Size.fromHeight(44)),
-                        onPressed: uploading ? null : _uploadQris,
-                        icon: uploading
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(Icons.upload_outlined, size: 16),
-                        label: Text(
-                            uploading ? 'Mengunggah...' : 'Upload Gambar QRIS',
-                            style: AppText.body(
-                                size: 12, weight: FontWeight.w700)),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: TextEditingController(
-                            text: '${form['qris_static_merchant'] ?? ''}'),
-                        onChanged: (v) => form['qris_static_merchant'] = v,
-                        decoration: const InputDecoration(
-                            labelText: 'Nama Merchant (opsional)',
-                            hintText: 'mis. JURAGAN SEBLAK - NMID ID1234',
-                            helperText: 'Tampil di modal QR kasir'),
-                      ),
-                    ]),
-                  ),
-                ]),
+                for (final b in branches) ...[
+                  const SizedBox(height: 14),
+                  _qrisBlock('${b['name']}', 'qris_static_image_b${b['id']}',
+                      'qris_static_merchant_b${b['id']}'),
+                ],
+                if ('${form['qris_static_image'] ?? ''}'.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _qrisBlock('QRIS Umum (cadangan, untuk cabang tanpa QRIS sendiri)',
+                      'qris_static_image', null),
+                ],
               ],
             ),
           ),
@@ -379,7 +407,7 @@ class _PembayaranPageState extends State<PembayaranPage> {
                 const SizedBox(height: 18),
                 primaryButton(
                   saving ? 'Menyimpan...' : 'Simpan Pengaturan',
-                  onPressed: saving || uploading ? null : _save,
+                  onPressed: saving || uploadingKey.isNotEmpty ? null : _save,
                 ),
                 const SizedBox(height: 8),
                 Center(

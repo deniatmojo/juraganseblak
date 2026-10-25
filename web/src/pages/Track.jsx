@@ -216,17 +216,17 @@ export default function Track() {
                     <strong>{rupiah(order.total)}</strong>
                     {order.table_no ? ' Setelah bayar, kasir meng-ACC — status pesanan berubah otomatis di halaman ini.' : ' lewat QRIS di bawah ini (tekan untuk memperbesar). Setelah bayar, admin kasir akan mengecek dan meng-ACC — status pesanan berubah otomatis di halaman ini.'}
                   </p>
-                  {store?.qris_static_image ? (
-                    <a href={store.qris_static_image} target="_blank" rel="noopener" className="block max-w-[280px] mx-auto">
-                      <img src={store.qris_static_image} alt="QRIS statis" className="w-full object-contain rounded-xl border border-black/10 bg-white" />
+                  {(order.qris_static_image || store?.qris_static_image) ? (
+                    <a href={order.qris_static_image || store.qris_static_image} target="_blank" rel="noopener" className="block max-w-[280px] mx-auto">
+                      <img src={order.qris_static_image || store.qris_static_image} alt="QRIS statis" className="w-full object-contain rounded-xl border border-black/10 bg-white" />
                     </a>
                   ) : (
                     <p className="text-sm text-char/50 bg-cream rounded-xl p-4 text-center">
                       QRIS belum dipasang admin. Silakan hubungi admin lewat WhatsApp untuk pembayaran.
                     </p>
                   )}
-                  {store?.qris_static_merchant && (
-                    <p className="text-center text-xs text-char/50 mt-3">Merchant: {store.qris_static_merchant}</p>
+                  {(order.qris_static_merchant || store?.qris_static_merchant) && (
+                    <p className="text-center text-xs text-char/50 mt-3">Merchant: {order.qris_static_merchant || store.qris_static_merchant}</p>
                   )}
                   <p className="text-center text-xs text-char/40 mt-4">Halaman ini memperbarui status otomatis setiap 10 detik. Jangan tutup ya!</p>
                 </div>

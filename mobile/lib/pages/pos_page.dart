@@ -82,6 +82,18 @@ class _PosPageState extends State<PosPage> {
   String gateway = 'none';
   String qrisImage = '';
   String qrisMerchant = '';
+  Map<String, dynamic> settingsMap = {};
+
+  // QRIS statis sesuai cabang shift yang dibuka (fallback ke QRIS umum)
+  String get curQrisImage {
+    final v = '${settingsMap['qris_static_image_b${shift?['branch_id']}'] ?? ''}';
+    return v.isNotEmpty ? v : qrisImage;
+  }
+
+  String get curQrisMerchant {
+    final v = '${settingsMap['qris_static_merchant_b${shift?['branch_id']}'] ?? ''}';
+    return v.isNotEmpty ? v : qrisMerchant;
+  }
 
   // Modal pembayaran: {'type': 'confirm', 'stage': 1|2} | {'type': 'gateway', ...}
   Map<String, dynamic>? payModal;
@@ -172,6 +184,7 @@ class _PosPageState extends State<PosPage> {
           gateway = '${settings['payment_gateway'] ?? 'none'}';
           qrisImage = '${settings['qris_static_image'] ?? ''}';
           qrisMerchant = '${settings['qris_static_merchant'] ?? ''}';
+          settingsMap = Map<String, dynamic>.from(settings as Map);
           loading = false;
         });
       }
@@ -1429,9 +1442,9 @@ class _PosPageState extends State<PosPage> {
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (payMethod == 'qris' && qrisImage.isNotEmpty) ...[
-                          if (qrisMerchant.isNotEmpty)
-                            Text('a.n $qrisMerchant',
+                        if (payMethod == 'qris' && curQrisImage.isNotEmpty) ...[
+                          if (curQrisMerchant.isNotEmpty)
+                            Text('a.n $curQrisMerchant',
                                 style: AppText.body(
                                     size: 11,
                                     weight: FontWeight.w700,
@@ -1440,7 +1453,7 @@ class _PosPageState extends State<PosPage> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(12),
                             child: Image.network(
-                              _imgUrl(qrisImage),
+                              _imgUrl(curQrisImage),
                               width: 200,
                               height: 200,
                               fit: BoxFit.cover,

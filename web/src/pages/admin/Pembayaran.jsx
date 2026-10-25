@@ -25,7 +25,8 @@ export default function Pembayaran() {
   const [form, setForm] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState('')   // kunci setting QRIS yang sedang diunggah
+  const [branches, setBranches] = useState([])
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
@@ -34,6 +35,10 @@ export default function Pembayaran() {
       .then((s) => setForm(s))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    api.get('/branch-options').then(setBranches).catch(() => {})
   }, [])
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
@@ -48,9 +53,9 @@ export default function Pembayaran() {
   const sStep = Number(form.rounding_step) || 0
   const sTotal = sStep > 0 ? Math.round(sRaw / sStep) * sStep : sRaw
 
-  const uploadQris = async (file) => {
+  const uploadQris = async (file, key) => {
     if (!file) return
-    setUploading(true)
+    setUploading(key)
     try {
       const fd = new FormData()
       fd.append('photo', file)
@@ -61,11 +66,11 @@ export default function Pembayaran() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Upload gagal')
-      set('qris_static_image', data.url)
+      set(key, data.url)
     } catch (e) {
       setError(e.message)
     } finally {
-      setUploading(false)
+      setUploading('')
     }
   }
 
@@ -75,6 +80,9 @@ export default function Pembayaran() {
     setError('')
     try {
       const payload = {}
+      for (const k of Object.keys(form).filter((x) => /^qris_static_(image|merchant)_b\d+$/.test(x))) {
+        if (form[k] !== undefined && form[k] !== null) payload[k] = form[k]
+      }
       for (const k of ['tax_rate', 'service_rate', 'rounding_step', 'qris_static_image', 'qris_static_merchant', 'payment_gateway', 'gateway_mode', 'gateway_merchant_id', 'gateway_api_key', 'gateway_private_key', 'gateway_callback_url']) {
         if (form[k] !== undefined && form[k] !== null) payload[k] = form[k]
       }
@@ -138,36 +146,68 @@ export default function Pembayaran() {
           </p>
         </section>
 
-        {/* QRIS STATIS */}
+        {/* QRIS STATIS — satu per cabang */}
         <section className="bg-white rounded-2xl border border-black/10 p-6">
-          <h2 className="font-bold">QRIS Statis</h2>
+          <h2 className="font-bold">QRIS Statis per Cabang</h2>
           <p className="text-xs text-char/50 mt-1 mb-4">
-            Gambar QRIS statis dari bank / e-wallet merchant Anda (daftar gratis di bank tempat rekening usaha).
-            Kasir akan menampilkan QR ini sebelum transaksi QRIS, lalu konfirmasi manual setelah pembayaran diterima.
+            Tiap cabang punya QRIS statis sendiri (dari bank / e-wallet merchant cabang tersebut). Kasir menampilkan QRIS cabang
+            shift yang sedang dibuka; pelanggan online melihat QRIS cabang tempat pesanannya. Konfirmasi manual setelah pembayaran diterima.
           </p>
-          <div className="flex items-start gap-5">
-            {form.qris_static_image ? (
-              <img src={form.qris_static_image} alt="QRIS statis" className="w-36 h-36 object-contain rounded-xl border border-black/10 bg-white" />
-            ) : (
-              <div className="w-36 h-36 rounded-xl border-2 border-dashed border-black/15 grid place-items-center text-xs text-char/40 text-center p-3">Belum ada gambar QRIS</div>
+          <div className="space-y-6">
+            {branches.map((b) => {
+              const imgKey = `qris_static_image_b${b.id}`
+              const merKey = `qris_static_merchant_b${b.id}`
+              return (
+                <div key={b.id} className="border border-black/10 rounded-xl p-4">
+                  <h3 className="font-bold text-sm mb-3">{b.name}</h3>
+                  <div className="flex items-start gap-5">
+                    {form[imgKey] ? (
+                      <img src={form[imgKey]} alt={`QRIS ${b.name}`} className="w-36 h-36 object-contain rounded-xl border border-black/10 bg-white" />
+                    ) : (
+                      <div className="w-36 h-36 rounded-xl border-2 border-dashed border-black/15 grid place-items-center text-xs text-char/40 text-center p-3">
+                        {form.qris_static_image ? 'Memakai QRIS umum' : 'Belum ada gambar QRIS'}
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-3">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        onChange={(e) => uploadQris(e.target.files?.[0], imgKey)}
+                        className="text-xs border border-black/15 rounded-xl px-4 py-2.5 bg-white w-full file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-char file:text-white file:text-xs file:font-bold"
+                      />
+                      {uploading === imgKey && <p className="text-xs text-char/50">Mengunggah...</p>}
+                      <label className="block text-xs font-bold text-char/60">Nama Merchant (opsional, tampil di modal QR)</label>
+                      <input
+                        type="text"
+                        value={form[merKey] || ''}
+                        onChange={(e) => set(merKey, e.target.value)}
+                        placeholder="mis. JURAGAN SEBLAK CABANG 1 - NMID ID1234"
+                        className="w-full border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            {/* QRIS umum lama — tetap dipakai cabang yang belum punya QRIS sendiri */}
+            {form.qris_static_image && (
+              <div className="border border-dashed border-black/15 rounded-xl p-4">
+                <h3 className="font-bold text-sm mb-1">QRIS Umum (cadangan)</h3>
+                <p className="text-xs text-char/50 mb-3">Dipakai cabang yang belum diunggah QRIS-nya sendiri.</p>
+                <div className="flex items-start gap-5">
+                  <img src={form.qris_static_image} alt="QRIS umum" className="w-24 h-24 object-contain rounded-xl border border-black/10 bg-white" />
+                  <div className="flex-1 space-y-3">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      onChange={(e) => uploadQris(e.target.files?.[0], 'qris_static_image')}
+                      className="text-xs border border-black/15 rounded-xl px-4 py-2.5 bg-white w-full file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-char file:text-white file:text-xs file:font-bold"
+                    />
+                    {uploading === 'qris_static_image' && <p className="text-xs text-char/50">Mengunggah...</p>}
+                  </div>
+                </div>
+              </div>
             )}
-            <div className="flex-1 space-y-3">
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={(e) => uploadQris(e.target.files?.[0])}
-                className="text-xs border border-black/15 rounded-xl px-4 py-2.5 bg-white w-full file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-char file:text-white file:text-xs file:font-bold"
-              />
-              {uploading && <p className="text-xs text-char/50">Mengunggah...</p>}
-              <label className="block text-xs font-bold text-char/60">Nama Merchant (opsional, tampil di modal QR)</label>
-              <input
-                type="text"
-                value={form.qris_static_merchant || ''}
-                onChange={(e) => set('qris_static_merchant', e.target.value)}
-                placeholder="mis. JURAGAN SEBLAK - NMID ID1234"
-                className="w-full border border-black/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-chili/30"
-              />
-            </div>
           </div>
         </section>
 

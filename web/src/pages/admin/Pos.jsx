@@ -62,7 +62,7 @@ export default function Pos() {
   const [categories, setCategories] = useState([{ key: 'semua', label: 'Semua' }])
   const [rates, setRates] = useState({ tax_rate: 0.1, service_rate: 0.05, rounding_step: 0 })
   // Konfigurasi pembayaran dari settings: gateway aktif + gambar QRIS statis
-  const [paySettings, setPaySettings] = useState({ gateway: 'none', qrisImage: '', qrisMerchant: '' })
+  const [paySettings, setPaySettings] = useState({ gateway: 'none', qrisImage: '', qrisMerchant: '', byBranch: {} })
   // Modal pembayaran QRIS: { type: 'static' } | { type: 'gateway', order, payment }
   const [payModal, setPayModal] = useState(null)
 
@@ -137,6 +137,8 @@ export default function Pos() {
           gateway: settings.payment_gateway || 'none',
           qrisImage: settings.qris_static_image || '',
           qrisMerchant: settings.qris_static_merchant || '',
+          // QRIS per cabang: kunci qris_static_image_b<id> / qris_static_merchant_b<id>
+          byBranch: Object.fromEntries(Object.entries(settings).filter(([k]) => /^qris_static_(image|merchant)_b\d+$/.test(k))),
         })
       })
       .catch((e) => mounted && setError(`Gagal memuat data: ${e.message}`))
@@ -253,6 +255,9 @@ export default function Pos() {
   const rawTotal = subtotal + tax + service
   const grandTotal = rates.rounding_step > 0 ? Math.round(rawTotal / rates.rounding_step) * rates.rounding_step : rawTotal
   const rounding = grandTotal - rawTotal
+  // QRIS statis sesuai cabang shift yang sedang dibuka (fallback ke QRIS umum)
+  const qrisImage = paySettings.byBranch?.[`qris_static_image_b${shift?.branch_id}`] || paySettings.qrisImage
+  const qrisMerchant = paySettings.byBranch?.[`qris_static_merchant_b${shift?.branch_id}`] || paySettings.qrisMerchant
   const totalQty = cart.reduce((sum, c) => sum + c.qty, 0)
 
   const setReceiptFromOrder = (order) => {
@@ -806,10 +811,10 @@ export default function Pos() {
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
           <div className="absolute inset-0 bg-char/70 backdrop-blur-sm" onClick={() => setPayModal(null)}></div>
           <div className="relative bg-white rounded-2xl w-full max-w-sm p-7 text-center">
-            {selectedPay === 'qris' && paySettings.qrisImage && payModal.stage === 1 && (
+            {selectedPay === 'qris' && qrisImage && payModal.stage === 1 && (
               <div className="mb-4 flex flex-col items-center">
-                {paySettings.qrisMerchant && <p className="text-xs font-bold text-char/60 mb-2">{paySettings.qrisMerchant}</p>}
-                <img src={paySettings.qrisImage} alt="QRIS statis" className="w-52 h-52 object-contain rounded-xl border border-black/10" />
+                {qrisMerchant && <p className="text-xs font-bold text-char/60 mb-2">{qrisMerchant}</p>}
+                <img src={qrisImage} alt="QRIS statis" className="w-52 h-52 object-contain rounded-xl border border-black/10" />
               </div>
             )}
 

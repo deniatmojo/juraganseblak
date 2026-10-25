@@ -30,7 +30,7 @@ router.get('/', async (req, res, next) => {
 router.patch('/', async (req, res, next) => {
   try {
     const entries = Object.entries(req.body || {}).filter(
-      ([k, v]) => /^[a-z_]+$/.test(k) && !(SECRET_KEYS.includes(k) && v === MASK)
+      ([k, v]) => /^[a-z0-9_]+$/.test(k) && !(SECRET_KEYS.includes(k) && v === MASK)
     );
     if (!entries.length) return res.status(400).json({ error: 'Tidak ada setting yang dikirim' });
     for (const [key, value] of entries) {

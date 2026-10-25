@@ -14,7 +14,17 @@ const router = Router();
 
 const PROGRESS_STEPS = ['queue', 'processing', 'ready', 'done'];
 
-async function getSettings() {
+// QRIS statis per cabang: kunci qris_static_image_b<id> / qris_static_merchant_b<id>;
+// cabang tanpa QRIS sendiri memakai QRIS umum (qris_static_image / _merchant).
+function qrisFor(s, branchId) {
+  const b = branchId ? `_b${Number(branchId)}` : null;
+  return {
+    qris_static_image: (b && s[`qris_static_image${b}`]) || s.qris_static_image || null,
+    qris_static_merchant: (b && s[`qris_static_merchant${b}`]) || s.qris_static_merchant || null,
+  };
+}
+
+async function getSettings(branchId = null) {
   const [rows] = await pool.query('SELECT `key`, `value` FROM settings');
   const s = {};
   for (const r of rows) s[r.key] = r.value;
@@ -28,17 +38,16 @@ async function getSettings() {
     // QRIS statis ditampilkan ke pelanggan untuk dibayar manual;
     // acc pembayaran sementara manual oleh admin kasir sampai
     // payment gateway aktif (webhook akan otomatis melunasi nanti).
-    qris_static_image: s.qris_static_image ?? null,
-    qris_static_merchant: s.qris_static_merchant ?? null,
+    ...qrisFor(s, branchId),
     payment_gateway: s.payment_gateway ?? 'none',
   };
 }
 
 // GET /api/online/store — info toko + QRIS statis untuk halaman publik.
 // Hanya field aman yang dikirim (tidak ada kunci gateway).
-router.get('/store', async (_req, res, next) => {
+router.get('/store', async (req, res, next) => {
   try {
-    res.json(await getSettings());
+    res.json(await getSettings(Number(req.query.branch_id) || null));
   } catch (e) { next(e); }
 });
 
@@ -331,7 +340,7 @@ router.get('/track/:orderNo', async (req, res, next) => {
       `SELECT id, order_no, channel, customer_name, customer_phone, order_type,
               schedule_at, table_no, delivery_address, customer_note,
               subtotal, tax_amount, service_amount, rounding_amount, total, pay_method, status,
-              progress, progress_updated_at, paid_at, created_at, track_code
+              progress, progress_updated_at, paid_at, created_at, track_code, branch_id
        FROM orders WHERE order_no = :no`,
       { no: req.params.orderNo }
     );
@@ -355,8 +364,10 @@ router.get('/track/:orderNo', async (req, res, next) => {
       'SELECT oi.product_id, p.name, oi.qty, oi.unit_price, oi.note, oi.porsi_no, oi.item_role FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = :id ORDER BY oi.id',
       { id: order.id }
     );
+    const { qris_static_image, qris_static_merchant } = await getSettings(order.branch_id);
     res.json({
       ...order,
+      qris_static_image, qris_static_merchant,
       limited,
       subtotal: Number(order.subtotal), tax_amount: Number(order.tax_amount),
       service_amount: Number(order.service_amount), rounding_amount: Number(order.rounding_amount), total: Number(order.total),
