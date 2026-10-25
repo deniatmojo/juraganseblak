@@ -64,16 +64,24 @@ async function replaceLinks(conn, productId, links) {
 const SELECT_PRODUCT = `
   SELECT p.id, p.name, p.category_id, c.\`key\` AS category, c.label AS category_label,
          p.price, p.hpp, p.image_url, p.is_active, p.is_available,
-         p.stock_item_id, p.stock_qty_per_unit, s.name AS stock_item_name
+         p.stock_item_id, p.stock_qty_per_unit, s.name AS stock_item_name,
+         COALESCE(pop.sold, 0) AS sold
   FROM products p
   JOIN categories c ON c.id = p.category_id
-  LEFT JOIN stock_items s ON s.id = p.stock_item_id`;
+  LEFT JOIN stock_items s ON s.id = p.stock_item_id
+  LEFT JOIN (
+    -- terlaris: jumlah terjual 90 hari terakhir (pesanan lunas) — untuk urutan menu
+    SELECT oi.product_id, SUM(oi.qty) AS sold
+    FROM order_items oi JOIN orders o ON o.id = oi.order_id
+    WHERE o.status = 'paid' AND o.created_at >= NOW() - INTERVAL 90 DAY
+    GROUP BY oi.product_id
+  ) pop ON pop.product_id = p.id`;
 
 async function attachLinks(rows) {
   const map = await linksForProducts(rows.map((r) => r.id));
   return rows.map((r) => ({
     ...r,
-    price: Number(r.price), hpp: Number(r.hpp), stock_qty_per_unit: Number(r.stock_qty_per_unit),
+    price: Number(r.price), hpp: Number(r.hpp), sold: Number(r.sold), stock_qty_per_unit: Number(r.stock_qty_per_unit),
     stock_links: map.get(r.id) || [],
   }));
 }
@@ -85,7 +93,7 @@ router.get('/', async (req, res, next) => {
     if (req.query.category) { cond.push('c.`key` = :category'); params.category = req.query.category; }
     if (req.query.includeInactive !== '1') cond.push('p.is_active = 1');
     const where = cond.length ? ` WHERE ${cond.join(' AND ')}` : '';
-    const [rows] = await pool.query(`${SELECT_PRODUCT}${where} ORDER BY c.sort_order, p.name`, params);
+    const [rows] = await pool.query(`${SELECT_PRODUCT}${where} ORDER BY c.sort_order, sold DESC, p.name`, params);
     res.json(await attachLinks(rows));
   } catch (e) { next(e); }
 });

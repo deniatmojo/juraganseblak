@@ -115,7 +115,7 @@ router.post('/', async (req, res, next) => {
         await conn.rollback();
         return res.status(400).json({ error: 'Jenis kuah tidak valid — pilih dari daftar Jenis Kuah' });
       }
-      if (l.item_role === 'topping' && p.category_key !== 'topping') {
+      if (l.item_role === 'topping' && !String(p.category_key).startsWith('topping')) {
         await conn.rollback();
         return res.status(400).json({ error: 'Topping tidak valid — pilih dari daftar Topping Seblak' });
       }

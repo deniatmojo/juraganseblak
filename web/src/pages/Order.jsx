@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
@@ -57,11 +57,12 @@ export default function Order() {
   // Kelompokkan menu per kategori untuk ditampilkan berurutan. Produk kuah &
   // topping tidak tampil sebagai daftar — keduanya lewat builder porsi.
   const kuahItems = useMemo(() => menu.filter((m) => m.category_key === 'kuah'), [menu])
-  const toppingItems = useMemo(() => menu.filter((m) => m.category_key === 'topping'), [menu])
+  // Topping punya beberapa kategori (topping, topping-frozen, topping-bakso, ...)
+  const toppingItems = useMemo(() => menu.filter((m) => String(m.category_key).startsWith('topping')), [menu])
   const grouped = useMemo(() => {
     const map = new Map()
     for (const item of menu) {
-      if (item.category_key === 'kuah' || item.category_key === 'topping') continue
+      if (item.category_key === 'kuah' || String(item.category_key).startsWith('topping')) continue
       if (!map.has(item.category)) map.set(item.category, [])
       map.get(item.category).push(item)
     }
@@ -365,10 +366,13 @@ export default function Order() {
 
                   <p className="text-xs font-bold text-char/60 mb-2">2. Isian / Topping — sesuai selera</p>
                   <div className="space-y-1.5 mb-5">
-                    {toppingItems.map((t) => {
+                    {toppingItems.map((t, idx) => {
                       const qty = draft.toppings[t.id] || 0
+                      const newGroup = idx === 0 || toppingItems[idx - 1].category !== t.category
                       return (
-                        <div key={t.id} className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
+                        <Fragment key={t.id}>
+                        {newGroup && <p className="text-[11px] font-bold uppercase tracking-wide text-chili pt-2">{t.category}</p>}
+                        <div className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
                           <button type="button" onClick={() => toggleDraftTopping(t.id)} className="flex-1 text-left min-w-0">
                             <span className="text-sm font-semibold">{t.name}</span>
                             <span className="text-xs text-char/50 ml-2">{rupiah(t.price)}</span>
@@ -383,6 +387,7 @@ export default function Order() {
                             </div>
                           )}
                         </div>
+                        </Fragment>
                       )
                     })}
                     {toppingItems.length === 0 && (

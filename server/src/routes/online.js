@@ -70,12 +70,19 @@ router.get('/branches', async (_req, res, next) => {
 router.get('/menu', async (_req, res, next) => {
   try {
     const [rows] = await pool.query(
-      `SELECT p.id, p.name, p.price, p.image_url, c.label AS category, c.\`key\` AS category_key
+      `SELECT p.id, p.name, p.price, p.image_url, c.label AS category, c.\`key\` AS category_key,
+              COALESCE(pop.sold, 0) AS sold
        FROM products p JOIN categories c ON c.id = p.category_id
+       LEFT JOIN (
+         SELECT oi.product_id, SUM(oi.qty) AS sold
+         FROM order_items oi JOIN orders o ON o.id = oi.order_id
+         WHERE o.status = 'paid' AND o.created_at >= NOW() - INTERVAL 90 DAY
+         GROUP BY oi.product_id
+       ) pop ON pop.product_id = p.id
        WHERE p.is_active = 1 AND p.is_available = 1
-       ORDER BY c.sort_order, p.id`
+       ORDER BY c.sort_order, sold DESC, p.id`
     );
-    res.json(rows.map((r) => ({ ...r, price: Number(r.price) })));
+    res.json(rows.map((r) => ({ ...r, price: Number(r.price), sold: Number(r.sold) })));
   } catch (e) { next(e); }
 });
 
@@ -247,7 +254,7 @@ router.post('/orders', async (req, res, next) => {
         await conn.rollback();
         return res.status(400).json({ error: 'Jenis kuah tidak valid — pilih dari daftar Jenis Kuah' });
       }
-      if (l.item_role === 'topping' && p.category_key !== 'topping') {
+      if (l.item_role === 'topping' && !String(p.category_key).startsWith('topping')) {
         await conn.rollback();
         return res.status(400).json({ error: 'Topping tidak valid — pilih dari daftar Topping Seblak' });
       }

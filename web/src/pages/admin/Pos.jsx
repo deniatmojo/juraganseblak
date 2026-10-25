@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { api } from '../../api'
@@ -119,12 +119,12 @@ export default function Pos() {
     Promise.all([api.get('/products'), api.get('/categories'), api.get('/settings')])
       .then(([products, cats, settings]) => {
         if (!mounted) return
-        setMenuItems(products.map((p) => ({ id: p.id, name: p.name, cat: p.category, price: p.price, img: p.image_url })))
+        setMenuItems(products.map((p) => ({ id: p.id, name: p.name, cat: p.category, catLabel: p.category_label, sold: p.sold || 0, price: p.price, img: p.image_url })))
         // Kategori kuah & topping tidak tampil sebagai chip/grid — keduanya
         // hanya dipakai lewat builder Porsi Seblak.
         setCategories([
           { key: 'semua', label: 'Semua' },
-          ...cats.filter((c) => c.key !== 'kuah' && c.key !== 'topping').map((c) => ({ key: c.key, label: c.label })),
+          ...cats.filter((c) => c.key !== 'kuah' && !c.key.startsWith('topping')).map((c) => ({ key: c.key, label: c.label })),
         ])
         setRates({ tax_rate: settings.tax_rate ?? 0.1, service_rate: settings.service_rate ?? 0.05, rounding_step: Number(settings.rounding_step) || 0 })
         setStore({
@@ -147,16 +147,19 @@ export default function Pos() {
 
   const filteredMenu = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return menuItems.filter(
-      (item) =>
-        item.cat !== 'kuah' && item.cat !== 'topping' && // porsi prasmanan via builder
-        (activeCat === 'semua' || item.cat === activeCat) && item.name.toLowerCase().includes(term)
-    )
+    // Terlaris di barisan paling atas (data penjualan 90 hari; urutan server dipertahankan bila sama)
+    return menuItems
+      .filter(
+        (item) =>
+          item.cat !== 'kuah' && !item.cat.startsWith('topping') && // porsi prasmanan via builder
+          (activeCat === 'semua' || item.cat === activeCat) && item.name.toLowerCase().includes(term)
+      )
+      .sort((a, b) => b.sold - a.sold)
   }, [search, activeCat, menuItems])
 
   // Bahan builder porsi: jenis kuah (wajib) & topping (bebas).
   const kuahItems = useMemo(() => menuItems.filter((m) => m.cat === 'kuah'), [menuItems])
-  const toppingItems = useMemo(() => menuItems.filter((m) => m.cat === 'topping'), [menuItems])
+  const toppingItems = useMemo(() => menuItems.filter((m) => m.cat.startsWith('topping')), [menuItems])
 
   const addToCart = (id) => {
     setCart((prev) => {
@@ -742,10 +745,13 @@ export default function Pos() {
                   <p className="text-xs text-char/40">Belum ada topping — tambahkan produk berkategori "Topping Seblak" di halaman Menu.</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {toppingItems.map((t) => {
+                    {toppingItems.map((t, idx) => {
                       const qty = porsiDraft.toppings[t.id] || 0
+                      const newGroup = idx === 0 || toppingItems[idx - 1].cat !== t.cat
                       return (
-                        <div key={t.id} className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
+                        <Fragment key={t.id}>
+                        {newGroup && <p className="text-[11px] font-bold uppercase tracking-wide text-chili pt-2">{t.catLabel}</p>}
+                        <div className={`flex items-center gap-3 border rounded-xl px-3 py-2 ${qty > 0 ? 'border-chili bg-chili/5' : 'border-black/10'}`}>
                           <button type="button" onClick={() => toggleDraftTopping(t.id)} className="flex-1 text-left min-w-0">
                             <span className="text-sm font-semibold">{t.name}</span>
                             <span className="text-xs text-char/50 ml-2">{formatRp(t.price)}</span>
@@ -760,6 +766,7 @@ export default function Pos() {
                             </div>
                           )}
                         </div>
+                        </Fragment>
                       )
                     })}
                   </div>

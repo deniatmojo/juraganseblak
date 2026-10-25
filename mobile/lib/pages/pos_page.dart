@@ -14,7 +14,10 @@ class Product {
   final String category;
   final double price;
   final String? imageUrl;
-  const Product(this.id, this.name, this.category, this.price, this.imageUrl);
+  final String categoryLabel;
+  final int sold; // terjual 90 hari terakhir (urutan terlaris)
+  const Product(this.id, this.name, this.category, this.price, this.imageUrl,
+      {this.categoryLabel = '', this.sold = 0});
 }
 
 class _ToppingSel {
@@ -160,12 +163,16 @@ class _PosPageState extends State<PosPage> {
             m['name'] ?? '',
             m['category'] ?? '',
             (num.tryParse('${m['price']}') ?? 0).toDouble(),
-            m['image_url']);
+            m['image_url'],
+            categoryLabel: '${m['category_label'] ?? ''}',
+            sold: (num.tryParse('${m['sold']}') ?? 0).toInt());
       }).toList();
       final cats = <(String, String)>[('semua', 'Semua')];
       for (final c in results[1] as List) {
         final m = Map<String, dynamic>.from(c as Map);
-        cats.add(('${m['key']}', '${m['label']}'));
+        final k = '${m['key']}';
+        if (k == 'kuah' || k.startsWith('topping')) continue; // lewat builder porsi
+        cats.add((k, '${m['label']}'));
       }
       final settings = Map<String, dynamic>.from(results[2] as Map);
       if (mounted) {
@@ -223,7 +230,7 @@ class _PosPageState extends State<PosPage> {
   List<Product> get kuahItems =>
       menuItems.where((m) => m.category == 'kuah').toList();
   List<Product> get toppingItems =>
-      menuItems.where((m) => m.category == 'topping').toList();
+      menuItems.where((m) => m.category.startsWith('topping')).toList();
 
   /// "Tambah Porsi" — buka sheet racikan: pilih kuah + topping + jumlah porsi.
   void openPorsiBuilder() {
@@ -806,10 +813,11 @@ class _PosPageState extends State<PosPage> {
         .where((m) =>
             // Porsi prasmanan (kuah/topping) hanya via builder, bukan grid.
             m.category != 'kuah' &&
-            m.category != 'topping' &&
+            !m.category.startsWith('topping') &&
             (activeCat == 'semua' || m.category == activeCat) &&
             m.name.toLowerCase().contains(search.toLowerCase()))
-        .toList();
+        .toList()
+      ..sort((a, b) => b.sold.compareTo(a.sold)); // terlaris di atas
     final w = MediaQuery.of(context).size.width;
     final cols = w > 900 ? 3 : 2;
 
@@ -976,12 +984,14 @@ class _PosPageState extends State<PosPage> {
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
         childAspectRatio: 1.25,
-        children: menuItems
+        children: (menuItems
             .where((m) =>
                 m.category != 'kuah' &&
-                m.category != 'topping' &&
+                !m.category.startsWith('topping') &&
                 (activeCat == 'semua' || m.category == activeCat) &&
                 m.name.toLowerCase().contains(search.toLowerCase()))
+            .toList()
+              ..sort((a, b) => b.sold.compareTo(a.sold))) // terlaris di atas
             .map((m) => _menuCard(m))
             .toList(),
       )),
@@ -2392,7 +2402,17 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
                       'Belum ada topping — tambahkan produk berkategori "Topping Seblak" di halaman Menu.',
                       style: AppText.body(size: 11, color: Colors.black26))
                 else
-                  for (final t in widget.toppingItems)
+                  for (final (i, t) in widget.toppingItems.indexed) ...[
+                    if (i == 0 ||
+                        widget.toppingItems[i - 1].category != t.category)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 6),
+                        child: Text(t.categoryLabel.toUpperCase(),
+                            style: AppText.body(
+                                size: 11,
+                                weight: FontWeight.w800,
+                                color: AppColors.chili)),
+                      ),
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Container(
@@ -2452,6 +2472,7 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
                         ]),
                       ),
                     ),
+                  ],
                 const SizedBox(height: 12),
                 step('3. Jumlah Porsi & Catatan Dapur'),
                 Row(children: [
