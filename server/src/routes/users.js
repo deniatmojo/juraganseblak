@@ -62,8 +62,12 @@ router.patch('/:id', async (req, res, next) => {
       if (String(body.password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
       await pool.query('UPDATE users SET password_hash = :h WHERE id = :id', { h: bcrypt.hashSync(String(body.password), 10), id });
     }
-    const sets = ['name', 'role', 'is_active', 'branch_id'].filter((f) => body[f] !== undefined);
     if (body.branch_id === '') body.branch_id = null; // kosong = tidak dikunci ke cabang
+    // Role yang tidak memakai kunci cabang (owner/karyawan/leader): lepas kunci lama.
+    if (body.role !== undefined && body.branch_id === undefined && !['admin', 'kasir', 'gudang'].includes(body.role)) {
+      body.branch_id = null;
+    }
+    const sets = ['name', 'role', 'is_active', 'branch_id'].filter((f) => body[f] !== undefined);
     if (body.role !== undefined && !ROLES.includes(body.role)) {
       return res.status(400).json({ error: 'Role tidak valid' });
     }

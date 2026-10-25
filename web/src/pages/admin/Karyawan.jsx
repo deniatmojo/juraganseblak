@@ -63,6 +63,15 @@ export default function Karyawan() {
     } catch (err) { setError(err.message) }
   }
 
+  const changeRole = async (u, role) => {
+    if (role === u.role) return
+    if (!window.confirm(`Ubah role ${u.name} (${u.email}) dari ${roleLabels[u.role] || u.role} menjadi ${roleLabels[role] || role}? Hak akses akun langsung berubah.`)) return
+    try {
+      await api.patch(`/users/${u.id}`, { role })
+      load()
+    } catch (err) { setError(err.message); load() }
+  }
+
   const toggleUser = async (u) => {
     const action = u.is_active ? 'Nonaktifkan' : 'Aktifkan'
     if (!window.confirm(`${action} akun ${u.email}?`)) return
@@ -170,7 +179,18 @@ export default function Karyawan() {
                   <td className="px-6 py-4 font-semibold">{u.name}</td>
                   <td className="px-6 py-4">{u.email}</td>
                   <td className="px-6 py-4">
-                    <span className="inline-block bg-ember/15 text-ember-dark text-xs font-bold px-3 py-1 rounded-full">{roleLabels[u.role] || u.role}</span>
+                    {u.id === user?.id ? (
+                      <span className="inline-block bg-ember/15 text-ember-dark text-xs font-bold px-3 py-1 rounded-full" title="Role akun sendiri tidak bisa diubah">{roleLabels[u.role] || u.role}</span>
+                    ) : (
+                      <select
+                        value={u.role}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        className="bg-ember/15 text-ember-dark text-xs font-bold px-3 py-1.5 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-chili/30"
+                        title="Ubah role akun"
+                      >
+                        {Object.entries(roleLabels).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                      </select>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     {BRANCH_ROLES.includes(u.role) ? (

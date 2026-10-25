@@ -223,6 +223,59 @@ class _KaryawanPageState extends State<KaryawanPage> {
     }
   }
 
+  /// Ubah role akun (hak akses langsung berubah). Role akun sendiri ditolak server.
+  Future<void> _setUserRole(Map<String, dynamic> u) async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (d) => SimpleDialog(
+        title: Text('Role ${u['name']}', style: AppText.display(size: 16)),
+        children: [
+          for (final e in roleLabels.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(d, e.key),
+              child: Text(e.value,
+                  style: AppText.body(
+                      size: 13,
+                      weight: e.key == '${u['role']}'
+                          ? FontWeight.w800
+                          : FontWeight.w500)),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || picked == '${u['role']}') return;
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text('Ubah role?', style: AppText.display(size: 16)),
+        content: Text(
+            '${u['name']} (${u['email']}) menjadi ${roleLabels[picked] ?? picked}. Hak akses akun langsung berubah.',
+            style: AppText.body(size: 12, color: Colors.black54)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.chili, elevation: 0),
+            onPressed: () => Navigator.pop(d, true),
+            child: const Text('Ubah'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await api.patch('/users/${u['id']}', {'role': picked});
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
   Future<void> _toggleUser(Map<String, dynamic> u) async {
     final active = u['is_active'] == 1 || u['is_active'] == true;
     final ok = await showDialog<bool>(
@@ -523,6 +576,12 @@ class _KaryawanPageState extends State<KaryawanPage> {
                           : StatusChip('Nonaktif',
                               fg: Colors.black45,
                               bg: Colors.black.withValues(alpha: 0.05)),
+                      if ('${u['id']}' != '${widget.user.id}')
+                        IconButton(
+                          tooltip: 'Ubah role',
+                          icon: const Icon(Icons.manage_accounts_outlined, size: 20),
+                          onPressed: () => _setUserRole(u),
+                        ),
                       if (_branchRole(u['role']))
                         IconButton(
                           tooltip: 'Atur cabang',
