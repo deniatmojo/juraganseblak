@@ -9,6 +9,10 @@ import { pool } from './db.js';
 // bila sesi login sudah ada). Super Admin mereset HP lewat halaman Karyawan.
 // ---------------------------------------------------------------------
 export const LOCKED_ROLES = ['karyawan', 'gudang', 'leader'];
+// Kunci HP baru aktif bila server dijalankan dengan DEVICE_LOCK=on (di server/.env).
+// Nyalakan SETELAH APK baru (yang mengirim X-Device-Id) terpasang di semua HP karyawan,
+// kalau tidak absen dari APK lama ditolak.
+export const LOCK_ENABLED = String(process.env.DEVICE_LOCK || '').toLowerCase() === 'on';
 
 (async () => {
   try {
@@ -61,7 +65,7 @@ export async function checkDevice(user, deviceId, deviceName = null) {
 // Middleware absen: role terkunci wajib dari aplikasi Android di HP terdaftar.
 export async function requireBoundDevice(req, res, next) {
   try {
-    if (!LOCKED_ROLES.includes(req.user?.role)) return next();
+    if (!LOCK_ENABLED || !LOCKED_ROLES.includes(req.user?.role)) return next();
     const deviceId = deviceIdFrom(req);
     if (!deviceId) {
       return res.status(403).json({ error: 'Absen hanya bisa lewat aplikasi Android di HP yang terdaftar untuk akun Anda.' });

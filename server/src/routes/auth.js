@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { pool } from '../db.js';
 import { signToken, requireAuth } from '../auth.js';
-import { LOCKED_ROLES, deviceIdFrom, checkDevice } from '../device.js';
+import { LOCK_ENABLED, LOCKED_ROLES, deviceIdFrom, checkDevice } from '../device.js';
 
 const router = Router();
 
@@ -24,7 +24,7 @@ router.post('/login', async (req, res, next) => {
     // Role absen-saja terkunci ke satu HP Android: login dari HP lain / HP milik akun lain ditolak.
     // (Login dari browser tanpa X-Device-Id tetap boleh, tetapi tidak bisa absen.)
     const deviceId = deviceIdFrom(req);
-    if (LOCKED_ROLES.includes(user.role) && deviceId) {
+    if (LOCK_ENABLED && LOCKED_ROLES.includes(user.role) && deviceId) {
       try {
         await checkDevice(user, deviceId, req.headers['x-device-name']);
       } catch (e) {
