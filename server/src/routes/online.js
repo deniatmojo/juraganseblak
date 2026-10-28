@@ -259,6 +259,17 @@ router.post('/orders', async (req, res, next) => {
         return res.status(400).json({ error: 'Topping tidak valid — pilih dari daftar Topping Seblak' });
       }
     }
+    // Level pedas: paling banyak SATU per porsi (produk kategori 'topping-level').
+    const levelCount = {};
+    for (const l of lines) {
+      if (l.porsi_no && byId[l.product_id].category_key === 'topping-level') {
+        levelCount[l.porsi_no] = (levelCount[l.porsi_no] || 0) + 1;
+        if (levelCount[l.porsi_no] > 1) {
+          await conn.rollback();
+          return res.status(400).json({ error: 'Level pedas hanya boleh satu per porsi' });
+        }
+      }
+    }
 
     const settings = await getSettings();
     const subtotal = lines.reduce((sum, l) => sum + Number(byId[l.product_id].price) * l.qty, 0);

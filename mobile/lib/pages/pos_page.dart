@@ -2291,6 +2291,23 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
     return (kuah!.price + toppingSum) * qty;
   }
 
+  List<Product> get levelItems =>
+      (widget.toppingItems.where((t) => t.category == 'topping-level').toList()
+        ..sort((a, b) => a.name.compareTo(b.name)));
+  List<Product> get listToppings =>
+      widget.toppingItems.where((t) => t.category != 'topping-level').toList();
+
+  /// Level pedas: satu pilihan per porsi (null = tanpa pedas); disimpan di `toppings`
+  /// supaya ikut harga & payload seperti topping lain.
+  void _setLevel(Product? p) {
+    setState(() {
+      for (final l in levelItems) {
+        toppings.remove(l.id);
+      }
+      if (p != null) toppings[p.id] = 1;
+    });
+  }
+
   void _toggleTopping(Product t) {
     setState(() {
       if (toppings[t.id] != null) {
@@ -2494,15 +2511,44 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
                       ),
                     ),
                 const SizedBox(height: 12),
-                step('2. Isian / Topping', accent: 'sesuai selera'),
-                if (widget.toppingItems.isEmpty)
+                if (levelItems.isNotEmpty) ...[
+                  step('2. Level Pedas'),
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    ChoiceChip(
+                      label: const Text('Tanpa  Rp0',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                      selected: !levelItems.any((l) => (toppings[l.id] ?? 0) > 0),
+                      selectedColor: AppColors.chili,
+                      labelStyle: TextStyle(
+                          color: !levelItems.any((l) => (toppings[l.id] ?? 0) > 0)
+                              ? Colors.white
+                              : Colors.black54),
+                      onSelected: (_) => _setLevel(null),
+                    ),
+                    for (final l in levelItems)
+                      ChoiceChip(
+                        label: Text('${l.name.replaceFirst('Pedas ', '')}  ${formatRp(l.price)}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                        selected: (toppings[l.id] ?? 0) > 0,
+                        selectedColor: AppColors.chili,
+                        labelStyle: TextStyle(
+                            color: (toppings[l.id] ?? 0) > 0
+                                ? Colors.white
+                                : Colors.black54),
+                        onSelected: (_) => _setLevel(l),
+                      ),
+                  ]),
+                  const SizedBox(height: 12),
+                ],
+                step('${levelItems.isNotEmpty ? '3' : '2'}. Isian / Topping', accent: 'sesuai selera'),
+                if (listToppings.isEmpty)
                   Text(
                       'Belum ada topping — tambahkan produk berkategori "Topping Seblak" di halaman Menu.',
                       style: AppText.body(size: 11, color: Colors.black26))
                 else
-                  for (final (i, t) in widget.toppingItems.indexed) ...[
+                  for (final (i, t) in listToppings.indexed) ...[
                     if (i == 0 ||
-                        widget.toppingItems[i - 1].category != t.category)
+                        listToppings[i - 1].category != t.category)
                       _toppingGroupHeader(t),
                     if (openGroups.contains(t.category))
                     Padding(
@@ -2566,7 +2612,7 @@ class _PorsiBuilderSheetState extends State<_PorsiBuilderSheet> {
                     ),
                   ],
                 const SizedBox(height: 12),
-                step('3. Jumlah Porsi & Catatan Dapur'),
+                step('${levelItems.isNotEmpty ? '4' : '3'}. Jumlah Porsi & Catatan Dapur'),
                 Row(children: [
                   qtyButton(
                       Icons.remove,

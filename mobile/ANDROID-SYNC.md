@@ -23,6 +23,7 @@ Server/web yang sudah (atau akan) live untuk fitur ini TIDAK berlaku di APK lama
 | `eade281` | Ubah role akun (ikon Ubah role) | pages/karyawan_page.dart |
 | `ffa7305` | Anti titip absen: kirim `X-Device-Id` (ANDROID_ID, paket `android_id`) & `X-Device-Name`; tombol Reset HP | main.dart, api_client.dart, pages/karyawan_page.dart, pubspec.yaml |
 | `4774c07` | Atas nama pemesan wajib di POS; cetak struk tercatat (`POST /orders/:id/print`), cetak ulang bertanda CETAKAN KE-N | pages/pos_page.dart, services/thermal_printer.dart |
+| (commit berikut) | Level Pedas Lv1-5 per porsi (produk kategori `topping-level`, dipilih terpisah dari topping, maks 1/porsi); harga kuah baru 1.500/2.000/2.500 (data: migrate-13) | pages/pos_page.dart (_PorsiBuilderSheet) |
 
 PERINGATAN rilis: begitu server dengan `ffa7305` di-restart, absen karyawan/gudang/leader dari APK
 LAMA ditolak (tidak mengirim X-Device-Id). Deploy server & rilis APK harus berbarengan.

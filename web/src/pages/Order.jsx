@@ -62,6 +62,9 @@ export default function Order() {
   const kuahItems = useMemo(() => menu.filter((m) => m.category_key === 'kuah'), [menu])
   // Topping punya beberapa kategori (topping, topping-frozen, topping-bakso, ...)
   const toppingItems = useMemo(() => menu.filter((m) => String(m.category_key).startsWith('topping')), [menu])
+  // Level pedas (Lv 1-5, ditagih) dipilih terpisah; selebihnya daftar topping biasa.
+  const levelItems = useMemo(() => toppingItems.filter((m) => m.category_key === 'topping-level').sort((a, b) => a.name.localeCompare(b.name)), [toppingItems])
+  const listToppings = useMemo(() => toppingItems.filter((m) => m.category_key !== 'topping-level'), [toppingItems])
   const grouped = useMemo(() => {
     const map = new Map()
     for (const item of menu) {
@@ -109,6 +112,15 @@ export default function Order() {
       const next = { ...d.toppings }
       if (next[id] > 0) delete next[id]
       else next[id] = 1
+      return { ...d, toppings: next }
+    })
+  }
+  // Level pedas: satu pilihan per porsi (null = tanpa pedas); disimpan di draft.toppings agar ikut harga & payload.
+  const setLevel = (id) => {
+    setDraft((d) => {
+      const next = { ...d.toppings }
+      for (const l of levelItems) delete next[l.id]
+      if (id) next[id] = 1
       return { ...d, toppings: next }
     })
   }
@@ -367,15 +379,32 @@ export default function Order() {
                     )}
                   </div>
 
-                  <p className="text-xs font-bold text-char/60 mb-2">2. Isian / Topping — sesuai selera</p>
+                  {levelItems.length > 0 && (
+                    <>
+                      <p className="text-xs font-bold text-char/60 mb-2">2. Level Pedas</p>
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-5">
+                        <button type="button" onClick={() => setLevel(null)} className={`border rounded-xl px-1 py-2.5 text-center transition-colors ${!levelItems.some((l) => draft.toppings[l.id] > 0) ? 'border-chili bg-chili/5 ring-1 ring-chili' : 'border-black/10 hover:border-chili/50'}`}>
+                          <p className="font-bold text-xs leading-snug">Tanpa</p>
+                          <p className="text-char/40 text-[11px] mt-0.5">Rp0</p>
+                        </button>
+                        {levelItems.map((l) => (
+                          <button key={l.id} type="button" onClick={() => setLevel(l.id)} className={`border rounded-xl px-1 py-2.5 text-center transition-colors ${draft.toppings[l.id] > 0 ? 'border-chili bg-chili/5 ring-1 ring-chili' : 'border-black/10 hover:border-chili/50'}`}>
+                            <p className="font-bold text-xs leading-snug">{l.name.replace(/^Pedas /, '')}</p>
+                            <p className="text-chili font-bold text-[11px] mt-0.5">{rupiah(l.price)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '3' : '2'}. Isian / Topping — sesuai selera</p>
                   <div role="note" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 mb-3 text-xs text-amber-900">
                     <svg className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
                     <p><strong>Perhatian:</strong> apabila stok topping habis, akan diganti dengan topping lain dengan harga yang sama.</p>
                   </div>
                   <div className="space-y-1.5 mb-5">
-                    {toppingItems.map((t, idx) => {
+                    {listToppings.map((t, idx) => {
                       const qty = draft.toppings[t.id] || 0
-                      const newGroup = idx === 0 || toppingItems[idx - 1].category !== t.category
+                      const newGroup = idx === 0 || listToppings[idx - 1].category !== t.category
                       return (
                         <Fragment key={t.id}>
                         {newGroup && (
@@ -407,14 +436,14 @@ export default function Order() {
                         </Fragment>
                       )
                     })}
-                    {toppingItems.length === 0 && (
+                    {listToppings.length === 0 && (
                       <p className="text-xs text-char/40">Topping belum tersedia — coba lagi nanti.</p>
                     )}
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-4 mb-5">
                     <div>
-                      <p className="text-xs font-bold text-char/60 mb-2">3. Jumlah Porsi</p>
+                      <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '4' : '3'}. Jumlah Porsi</p>
                       <div className="flex items-center gap-3 border border-black/10 rounded-xl px-3 py-2">
                         <button type="button" onClick={() => setDraft((d) => ({ ...d, qty: Math.max(1, d.qty - 1) }))} className="w-8 h-8 rounded-full bg-cream border border-black/10 font-bold grid place-items-center">−</button>
                         <span className="flex-1 text-center font-bold tabular-nums">{draft.qty}</span>
@@ -422,7 +451,7 @@ export default function Order() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-char/60 mb-2">4. Catatan Dapur <span className="font-normal text-char/40">(opsional)</span></p>
+                      <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '5' : '4'}. Catatan Dapur <span className="font-normal text-char/40">(opsional)</span></p>
                       <input
                         type="text"
                         value={draft.note}

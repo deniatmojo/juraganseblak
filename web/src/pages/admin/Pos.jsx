@@ -164,6 +164,9 @@ export default function Pos() {
   // Bahan builder porsi: jenis kuah (wajib) & topping (bebas).
   const kuahItems = useMemo(() => menuItems.filter((m) => m.cat === 'kuah'), [menuItems])
   const toppingItems = useMemo(() => menuItems.filter((m) => m.cat.startsWith('topping')), [menuItems])
+  // Level pedas (Lv 1-5, ditagih) dipilih terpisah; selebihnya daftar topping biasa.
+  const levelItems = useMemo(() => toppingItems.filter((m) => m.cat === 'topping-level').sort((a, b) => a.name.localeCompare(b.name)), [toppingItems])
+  const listToppings = useMemo(() => toppingItems.filter((m) => m.cat !== 'topping-level'), [toppingItems])
 
   const addToCart = (id) => {
     setCart((prev) => {
@@ -199,6 +202,15 @@ export default function Pos() {
       const next = { ...d.toppings }
       if (next[id] > 0) delete next[id]
       else next[id] = 1
+      return { ...d, toppings: next }
+    })
+  }
+  // Level pedas: satu pilihan per porsi (null = tanpa pedas); disimpan di porsiDraft.toppings.
+  const setLevel = (id) => {
+    setPorsiDraft((d) => {
+      const next = { ...d.toppings }
+      for (const l of levelItems) delete next[l.id]
+      if (id) next[id] = 1
       return { ...d, toppings: next }
     })
   }
@@ -777,15 +789,33 @@ export default function Pos() {
                 </div>
               </div>
 
+              {levelItems.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-char/60 mb-2">2. Level Pedas</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    <button type="button" onClick={() => setLevel(null)} className={`border rounded-xl px-1 py-2.5 text-center transition-colors ${!levelItems.some((l) => porsiDraft.toppings[l.id] > 0) ? 'border-chili bg-chili/5 ring-1 ring-chili' : 'border-black/10 hover:border-chili/50'}`}>
+                      <p className="font-bold text-xs leading-snug">Tanpa</p>
+                      <p className="text-char/40 text-[11px] mt-0.5">Rp0</p>
+                    </button>
+                    {levelItems.map((l) => (
+                      <button key={l.id} type="button" onClick={() => setLevel(l.id)} className={`border rounded-xl px-1 py-2.5 text-center transition-colors ${porsiDraft.toppings[l.id] > 0 ? 'border-chili bg-chili/5 ring-1 ring-chili' : 'border-black/10 hover:border-chili/50'}`}>
+                        <p className="font-bold text-xs leading-snug">{l.name.replace(/^Pedas /, '')}</p>
+                        <p className="text-chili font-bold text-[11px] mt-0.5">{formatRp(l.price)}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <p className="text-xs font-bold text-char/60 mb-2">2. Isian / Topping — sesuai selera</p>
-                {toppingItems.length === 0 ? (
+                <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '3' : '2'}. Isian / Topping — sesuai selera</p>
+                {listToppings.length === 0 ? (
                   <p className="text-xs text-char/40">Belum ada topping — tambahkan produk berkategori "Topping Seblak" di halaman Menu.</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {toppingItems.map((t, idx) => {
+                    {listToppings.map((t, idx) => {
                       const qty = porsiDraft.toppings[t.id] || 0
-                      const newGroup = idx === 0 || toppingItems[idx - 1].cat !== t.cat
+                      const newGroup = idx === 0 || listToppings[idx - 1].cat !== t.cat
                       return (
                         <Fragment key={t.id}>
                         {newGroup && (
@@ -823,7 +853,7 @@ export default function Pos() {
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-bold text-char/60 mb-2">3. Jumlah Porsi</p>
+                  <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '4' : '3'}. Jumlah Porsi</p>
                   <div className="flex items-center gap-3 border border-black/10 rounded-xl px-3 py-2">
                     <button type="button" onClick={() => setPorsiDraft((d) => ({ ...d, qty: Math.max(1, d.qty - 1) }))} className="w-7 h-7 rounded-full border border-black/15 font-bold grid place-items-center">−</button>
                     <span className="flex-1 text-center font-bold tabular-nums">{porsiDraft.qty}</span>
@@ -831,7 +861,7 @@ export default function Pos() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-char/60 mb-2">4. Catatan Dapur <span className="font-normal text-char/40">(opsional)</span></p>
+                  <p className="text-xs font-bold text-char/60 mb-2">{levelItems.length > 0 ? '5' : '4'}. Catatan Dapur <span className="font-normal text-char/40">(opsional)</span></p>
                   <input
                     type="text"
                     value={porsiDraft.note}
