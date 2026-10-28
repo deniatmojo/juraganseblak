@@ -5,25 +5,9 @@ File ini DIPERBARUI otomatis tiap kali prompt "Update Android APK nya" dijalanka
 untuk mengetahui perubahan web/server apa yang belum masuk ke aplikasi.
 
 ## Titik sinkron terakhir
-- Commit terakhir yang SUDAH tercermin di APK : `2a2f404`
-- Versi APK terakhir                          : 0.2.7+21 (versionCode 21)
-- Tanggal                                     : 2026-10-25
-
-## Perubahan source Android SUDAH ditulis tapi BELUM dirilis (menunggu APK berikutnya)
-Kode sudah ada di repo (commit sesudah `2a2f404`), TETAPI APK belum dibuild. Saat APK berikutnya
-dibuild: naikkan versi (> 0.2.7+21), isi tabel riwayat, dan ubah "Titik sinkron terakhir".
-Server/web yang sudah (atau akan) live untuk fitur ini TIDAK berlaku di APK lama.
-
-| Commit | Fitur | File Android |
-|--------|-------|--------------|
-| `10d2c89` | Pemilih jam masuk stepper (+/- jam & menit), langsung tersimpan | pages/absensi_page.dart |
-| `f388559` | Pembulatan ke kelipatan Rp1.000 terdekat (>=500 naik, <500 turun; selisih bisa negatif) | pages/pos_page.dart, pages/pembayaran_page.dart |
-| `8d3161d` | QRIS statis per cabang (kunci `qris_static_image_b<id>`), POS pakai QRIS cabang shift | pages/pembayaran_page.dart, pages/pos_page.dart |
-| `1c01050`, `7688f9e` | Topping 3 kategori (`topping-*`), grup tertutup (ketuk buka), urutan terlaris (`sold`) | pages/pos_page.dart |
-| `eade281` | Ubah role akun (ikon Ubah role) | pages/karyawan_page.dart |
-| `ffa7305` | Anti titip absen: kirim `X-Device-Id` (ANDROID_ID, paket `android_id`) & `X-Device-Name`; tombol Reset HP | main.dart, api_client.dart, pages/karyawan_page.dart, pubspec.yaml |
-| `4774c07` | Atas nama pemesan wajib di POS; cetak struk tercatat (`POST /orders/:id/print`), cetak ulang bertanda CETAKAN KE-N | pages/pos_page.dart, services/thermal_printer.dart |
-| (commit berikut) | Level Pedas Lv1-5 per porsi (produk kategori `topping-level`, dipilih terpisah dari topping, maks 1/porsi); harga kuah baru 1.500/2.000/2.500 (data: migrate-13) | pages/pos_page.dart (_PorsiBuilderSheet) |
+- Commit terakhir yang SUDAH tercermin di APK : `aebdf1e`
+- Versi APK terakhir                          : 0.3.0+22 (versionCode 22)
+- Tanggal                                     : 2026-10-29
 
 PERINGATAN rilis: kunci HP default MATI (flag `DEVICE_LOCK=on` di server/.env). Setelah semua HP karyawan memakai APK baru, tambahkan `DEVICE_LOCK=on` lalu `pm2 restart`. Bila dinyalakan sebelum itu, absen karyawan/gudang/leader dari APK
 LAMA ditolak (tidak mengirim X-Device-Id). Deploy server & rilis APK harus berbarengan.
@@ -68,3 +52,4 @@ web tidak berubah.
 | 0.2.5+19 | Struk: LUNAS + blok Aira Dynamics, pembulatan digabung Service, tanggal terisi |
 | 0.2.6+20 | Hapus login demo, Ganti Password, tagline "Solusi sistem bisnis anda", tab Keuangan |
 | 0.2.7+21 | Role Admin Gudang & Tim Leader |
+| 0.3.0+22 | Jam masuk stepper, pembulatan Rp1.000, QRIS per cabang, topping 3 kategori + terlaris, Level Pedas, ubah role, anti titip absen (X-Device-Id), nama pemesan wajib + cetak ulang CETAKAN KE-N |
